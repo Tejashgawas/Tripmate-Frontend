@@ -1,96 +1,72 @@
-"use client";
+"use client"
 
-import { useRouter } from "next/navigation"
+import { useRouter, useSearchParams } from "next/navigation"
+import { Suspense, useState, useEffect } from "react"
+import Link from "next/link"
+import {
+  ArrowLeft, Eye, EyeOff, Users, MapPin, CheckCircle, X
+} from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { ArrowLeft, Eye, EyeOff, Moon, Sun, Users, MapPin, CheckCircle, X } from "lucide-react"
-import Link from "next/link"
 import RolePickerModal from "@/components/RolePickerModal"
 import { fetchMe } from "@/lib/auth"
-import { useState, useEffect } from 'react';
-import { useSearchParams } from "next/navigation";
 
 const BASE_URL = "https://tripmate-39hm.onrender.com/"
 
-export default function LoginPage() {
-  
+function LoginContent() {
   const router = useRouter()
-  const [formData, setFormData] = useState({
-    email: "",
-    password: "",
-  })
+  const searchParams = useSearchParams()
+  const new_user = searchParams.get("new_user")
+
+  const [formData, setFormData] = useState({ email: "", password: "" })
   const [showPassword, setShowPassword] = useState(false)
   const [isLoading, setIsLoading] = useState(false)
   const [showSuccessToast, setShowSuccessToast] = useState(false)
   const [showRoleModal, setShowRoleModal] = useState(false)
-  
-  const searchParams = useSearchParams();
-  const new_user = searchParams.get("new_user");
 
-
-    /* ── helper ────────────────────────────── */
+  /* ── role redirection ─────────────────── */
   const redirectByRole = (role: string) => {
     switch (role) {
-      case 'general':
-        router.push('/dashboard');   // traveller UI
-        break;
-      case 'provider':
-        router.push('/provider');    // service-provider UI
-        break;
-      case 'admin':
-        router.push('/admin');       // admin console
-        break;
+      case "general":
+        router.push("/dashboard")
+        break
+      case "provider":
+        router.push("/provider")
+        break
+      case "admin":
+        router.push("/admin")
+        break
       default:
-        router.push('/');            // fallback / unknown
+        router.push("/")
     }
-  };
-  
+  }
 
   const handleInputChange = (field: string, value: string) => {
-    setFormData((prev) => ({
-      ...prev,
-      [field]: value,
-    }))
+    setFormData((prev) => ({ ...prev, [field]: value }))
   }
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setIsLoading(true)
-
     try {
-      console.log("Attempting login...")
-
-      const loginData = {
-        email: formData.email,
-        password: formData.password,
-      }
-
+      const loginData = { email: formData.email, password: formData.password }
       const response = await fetch(`${BASE_URL}auth/login`, {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
+        headers: { "Content-Type": "application/json" },
         credentials: "include",
         body: JSON.stringify(loginData),
       })
 
       if (response.ok) {
         const userData = await response.json()
-        console.log("[v0] Login response:", userData)
-        console.log("[v0] User role:", userData.role)
-
         setShowSuccessToast(true)
-
-       setTimeout(() => {
-          setShowSuccessToast(false);
-
-          const userRole = userData.role || userData.user?.role;
-          console.log('[v0] Redirecting user with role:', userRole);
-
-          redirectByRole(userRole);
-        }, 3000);
+        setTimeout(() => {
+          setShowSuccessToast(false)
+          const userRole = userData.role || userData.user?.role
+          redirectByRole(userRole)
+        }, 3000)
       } else {
         const errorText = await response.text()
         console.error("Login failed:", response.status, errorText)
@@ -104,72 +80,62 @@ export default function LoginPage() {
     }
   }
 
-  const handleGoogleLogin = async () => {
-    try {
-      console.log("Attempting Google login...")
-      window.location.href = `${BASE_URL}auth/google/login`
-    } catch (error) {
-      console.error("Google login error:", error)
-      alert("Google login failed. Please try again.")
-    }
+  const handleGoogleLogin = () => {
+    window.location.href = `${BASE_URL}auth/google/login`
   }
 
+  /* ── new user onboarding ─────────────── */
   useEffect(() => {
     if (new_user === "true") {
-      setShowRoleModal(true); // open onboarding modal
+      setShowRoleModal(true)
     }
-  }, [new_user]);
-
+  }, [new_user])
 
   useEffect(() => {
     (async () => {
-      // skip if not redirected back from Google (no session cookie yet)
       try {
-        const me = await fetchMe();        // → role, auth_type, is_new_user
-        if (me.auth_type !== "google") return;      // normal local login
-
+        const me = await fetchMe()
+        if (me.auth_type !== "google") return
         if (me.is_new_user) {
-          setShowRoleModal(true);          // ask role once
+          setShowRoleModal(true)
         } else {
-          // existing Google user ➜ direct dash based on stored role
           router.replace(
             me.role === "provider"
               ? "/provider"
               : me.role === "admin"
-                ? "/admin"
-                : "/dashboard"
-          );
+              ? "/admin"
+              : "/dashboard"
+          )
         }
-      } catch { /* silent – not logged in */ }
-    })();
-  }, []);
+      } catch {
+        /* not logged in */
+      }
+    })()
+  }, [])
 
-  
-  
-
-
-
+  /* ── render ─────────────── */
   return (
     <div className="min-h-screen bg-gradient-to-br from-[#1e40af]/5 via-background to-[#06b6d4]/5 flex items-center justify-center p-4 relative overflow-hidden">
+      {/* Success toast */}
       {showSuccessToast && (
         <div className="fixed top-4 left-1/2 transform -translate-x-1/2 z-[100] animate-in slide-in-from-top-2 duration-300">
           <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-lg p-4 flex items-center space-x-3 min-w-[300px]">
             <CheckCircle className="h-5 w-5 text-green-500 flex-shrink-0" />
-            <span className="text-sm font-medium text-gray-900 dark:text-gray-100 flex-1">Login Successful</span>
+            <span className="text-sm font-medium text-gray-900 dark:text-gray-100 flex-1">
+              Login Successful
+            </span>
             <button
               onClick={() => setShowSuccessToast(false)}
               className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 transition-colors"
             >
               <X className="h-4 w-4" />
             </button>
-            <div
-              className="absolute bottom-0 left-0 h-1 bg-green-500 rounded-b-lg animate-pulse"
-              style={{ width: "100%" }}
-            />
+            <div className="absolute bottom-0 left-0 h-1 bg-green-500 rounded-b-lg animate-pulse w-full" />
           </div>
         </div>
       )}
 
+      {/* particles */}
       <div className="absolute inset-0 overflow-hidden pointer-events-none">
         {[...Array(15)].map((_, i) => (
           <div
@@ -185,6 +151,7 @@ export default function LoginPage() {
         ))}
       </div>
 
+      {/* header */}
       <header className="absolute top-0 left-0 right-0 z-50 p-4">
         <div className="flex items-center justify-between max-w-6xl mx-auto">
           <Link href="/" className="flex items-center space-x-2 group">
@@ -193,11 +160,10 @@ export default function LoginPage() {
               TripMate
             </span>
           </Link>
-
-          
         </div>
       </header>
 
+      {/* form card */}
       <div className="w-full max-w-md relative z-10">
         <Card className="backdrop-blur-sm bg-background/80 border-2 hover:border-[#1e40af]/20 transition-all duration-300 hover:shadow-2xl">
           <CardHeader className="text-center space-y-4">
@@ -212,7 +178,9 @@ export default function LoginPage() {
             <CardTitle className="text-3xl font-bold bg-gradient-to-r from-[#1e40af] to-[#06b6d4] bg-clip-text text-transparent">
               Welcome Back
             </CardTitle>
-            <CardDescription className="text-lg">Sign in to continue your travel adventures</CardDescription>
+            <CardDescription className="text-lg">
+              Sign in to continue your travel adventures
+            </CardDescription>
           </CardHeader>
 
           <CardContent>
@@ -225,6 +193,7 @@ export default function LoginPage() {
               >
                 <div className="absolute inset-0 bg-gradient-to-r from-[#1e40af]/5 to-[#06b6d4]/5 opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
                 <div className="flex items-center justify-center space-x-3 relative z-10">
+                  {/* google svg */}
                   <svg className="h-5 w-5" viewBox="0 0 24 24">
                     <path
                       fill="#4285F4"
@@ -252,14 +221,14 @@ export default function LoginPage() {
                   <span className="w-full border-t border-muted-foreground/20" />
                 </div>
                 <div className="relative flex justify-center text-xs uppercase">
-                  <span className="bg-background px-2 text-muted-foreground">Or continue with email</span>
+                  <span className="bg-background px-2 text-muted-foreground">
+                    Or continue with email
+                  </span>
                 </div>
               </div>
 
               <div className="space-y-2">
-                <Label htmlFor="email" className="text-sm font-medium">
-                  Email Address
-                </Label>
+                <Label htmlFor="email">Email Address</Label>
                 <Input
                   id="email"
                   type="email"
@@ -272,9 +241,7 @@ export default function LoginPage() {
               </div>
 
               <div className="space-y-2">
-                <Label htmlFor="password" className="text-sm font-medium">
-                  Password
-                </Label>
+                <Label htmlFor="password">Password</Label>
                 <div className="relative">
                   <Input
                     id="password"
@@ -306,8 +273,9 @@ export default function LoginPage() {
                 disabled={isLoading || !formData.email || !formData.password}
                 className="w-full h-12 bg-gradient-to-r from-[#1e40af] to-[#3b82f6] hover:from-[#1e40af]/90 hover:to-[#3b82f6]/90 text-white font-semibold relative overflow-hidden group transition-all duration-300 hover:scale-105 hover:shadow-lg"
               >
-                <span className="relative z-10">{isLoading ? "Signing In..." : "Sign In"}</span>
-                <div className="absolute inset-0 bg-gradient-to-r from-[#06b6d4]/20 to-[#1e40af]/20 opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
+                <span className="relative z-10">
+                  {isLoading ? "Signing In..." : "Sign In"}
+                </span>
               </Button>
 
               <div className="text-center">
@@ -321,7 +289,7 @@ export default function LoginPage() {
 
               <div className="text-center pt-4">
                 <p className="text-sm text-muted-foreground">
-                  Don't have an account?{" "}
+                  Don’t have an account?{" "}
                   <Link
                     href="/signup"
                     className="text-[#1e40af] hover:text-[#1e40af]/80 font-medium transition-colors duration-300 hover:underline"
@@ -335,5 +303,14 @@ export default function LoginPage() {
         </Card>
       </div>
     </div>
+  )
+}
+
+/* ── wrapper with suspense ─────────── */
+export default function LoginPage() {
+  return (
+    <Suspense fallback={<div className="p-6 text-center">Loading login...</div>}>
+      <LoginContent />
+    </Suspense>
   )
 }
