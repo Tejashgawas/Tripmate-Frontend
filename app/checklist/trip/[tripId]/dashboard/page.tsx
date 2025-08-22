@@ -1,4 +1,4 @@
-"use client"
+"use client";
 import DashboardShell from "@/components/dashboard-shell"
 import { useState, useEffect } from "react"
 import { useParams } from "next/navigation"
