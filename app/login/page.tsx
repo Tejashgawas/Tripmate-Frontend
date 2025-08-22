@@ -10,6 +10,7 @@ import Link from "next/link"
 import RolePickerModal from "@/components/RolePickerModal"
 import { fetchMe } from "@/lib/auth"
 import { useState, useEffect } from 'react';
+import { useSearchParams } from "next/navigation";
 
 const BASE_URL = "https://tripmate-39hm.onrender.com/"
 
@@ -24,6 +25,10 @@ export default function LoginPage() {
   const [isLoading, setIsLoading] = useState(false)
   const [showSuccessToast, setShowSuccessToast] = useState(false)
   const [showRoleModal, setShowRoleModal] = useState(false)
+  
+  const searchParams = useSearchParams();
+  const new_user = searchParams.get("new_user");
+
 
     /* ── helper ────────────────────────────── */
   const redirectByRole = (role: string) => {
@@ -110,6 +115,13 @@ export default function LoginPage() {
   }
 
   useEffect(() => {
+    if (new_user === "true") {
+      setShowRoleModal(true); // open onboarding modal
+    }
+  }, [new_user]);
+
+
+  useEffect(() => {
     (async () => {
       // skip if not redirected back from Google (no session cookie yet)
       try {
@@ -132,6 +144,7 @@ export default function LoginPage() {
     })();
   }, []);
 
+  
   
 
 
