@@ -84,34 +84,38 @@ function LoginContent() {
     window.location.href = `${BASE_URL}auth/google/login`
   }
 
+  /* ── handle role modal close ─────────────── */
+  const handleRoleModalClose = () => {
+    setShowRoleModal(false)
+    // Clean up the URL parameter after role selection
+    const url = new URL(window.location.href)
+    url.searchParams.delete("new_user")
+    window.history.replaceState({}, "", url.toString())
+  }
+
   /* ── new user onboarding ─────────────── */
   useEffect(() => {
-    if (new_user === "true") {
-      setShowRoleModal(true)
-    }
-  }, [new_user])
-
-  useEffect(() => {
+    // Always check user authentication first
     (async () => {
       try {
         const me = await fetchMe()
-        if (me.auth_type !== "google") return
-        if (me.is_new_user) {
+        
+        // TOP PRIORITY: If Google user AND new_user=true, show role picker
+        // Don't care about existing role, let them choose again
+        if (me.auth_type === "google" && new_user === "true") {
           setShowRoleModal(true)
-        } else {
-          router.replace(
-            me.role === "provider"
-              ? "/provider"
-              : me.role === "admin"
-              ? "/admin"
-              : "/dashboard"
-          )
+          return // Don't redirect, let user choose role first (ignore existing role)
         }
-      } catch {
-        /* not logged in */
+        
+        // Normal flow: If user is logged in and has a role, redirect them
+        if (me && me.role) {
+          redirectByRole(me.role)
+        }
+      } catch (error) {
+        // User not authenticated - stay on login page
       }
     })()
-  }, [])
+  }, [new_user, searchParams])
 
   /* ── render ─────────────── */
   return (
@@ -133,6 +137,11 @@ function LoginContent() {
             <div className="absolute bottom-0 left-0 h-1 bg-green-500 rounded-b-lg animate-pulse w-full" />
           </div>
         </div>
+      )}
+
+      {/* Role Picker Modal */}
+      {showRoleModal && (
+        <RolePickerModal onClose={handleRoleModalClose} />
       )}
 
       {/* particles */}
@@ -163,8 +172,8 @@ function LoginContent() {
         </div>
       </header>
 
-      {/* form card */}
-      <div className="w-full max-w-md relative z-10">
+      {/* form card - hide when role modal is shown */}
+      <div className={`w-full max-w-md relative z-10 transition-opacity duration-300 ${showRoleModal ? 'opacity-50 pointer-events-none' : 'opacity-100'}`}>
         <Card className="backdrop-blur-sm bg-background/80 border-2 hover:border-[#1e40af]/20 transition-all duration-300 hover:shadow-2xl">
           <CardHeader className="text-center space-y-4">
             <div className="flex justify-center space-x-2 mb-4">
@@ -289,7 +298,7 @@ function LoginContent() {
 
               <div className="text-center pt-4">
                 <p className="text-sm text-muted-foreground">
-                  Don’t have an account?{" "}
+                  Don't have an account?{" "}
                   <Link
                     href="/signup"
                     className="text-[#1e40af] hover:text-[#1e40af]/80 font-medium transition-colors duration-300 hover:underline"
