@@ -94,28 +94,63 @@ function LoginContent() {
   }
 
   /* ── new user onboarding ─────────────── */
+  // useEffect(() => {
+  //   // Always check user authentication first
+  //   (async () => {
+  //     try {
+  //       const me = await fetchMe()
+        
+  //       // TOP PRIORITY: If Google user AND new_user=true, show role picker
+  //       // Don't care about existing role, let them choose again
+  //       if (me.auth_type === "google" && new_user === "true") {
+  //         setShowRoleModal(true)
+  //         return // Don't redirect, let user choose role first (ignore existing role)
+  //       }
+        
+  //       // Normal flow: If user is logged in and has a role, redirect them
+  //       if (me && me.role) {
+  //         redirectByRole(me.role)
+  //       }
+  //     } catch (error) {
+  //       // User not authenticated - stay on login page
+  //     }
+  //   })()
+  // }, [new_user, searchParams])
   useEffect(() => {
-    // Always check user authentication first
-    (async () => {
-      try {
-        const me = await fetchMe()
-        
-        // TOP PRIORITY: If Google user AND new_user=true, show role picker
-        // Don't care about existing role, let them choose again
-        if (me.auth_type === "google" && new_user === "true") {
-          setShowRoleModal(true)
-          return // Don't redirect, let user choose role first (ignore existing role)
-        }
-        
-        // Normal flow: If user is logged in and has a role, redirect them
-        if (me && me.role) {
-          redirectByRole(me.role)
-        }
-      } catch (error) {
-        // User not authenticated - stay on login page
+  const handleUserFlow = async () => {
+    console.log("Query params - new_user:", new_user) // Debug log
+    
+    try {
+      const me = await fetchMe()
+      console.log("Fetched user:", me) // Debug log
+      
+      // Check all possible auth_type field names
+      const authType = me.auth_type
+      console.log("Auth type:", authType) // Debug log
+      
+      // Priority 1: New Google user - show role picker
+      if (new_user === "True" && authType === "google") {
+        console.log("Showing role picker for new Google user")
+        setShowRoleModal(true)
+        return
       }
-    })()
-  }, [new_user, searchParams])
+      
+      // Priority 2: Existing user with role - redirect
+      if (me.role && new_user !== "true") {
+        console.log("Redirecting existing user with role:", me.role)
+        redirectByRole(me.role)
+        return
+      }
+      
+      console.log("No redirect - staying on login page")
+    } catch (error) {
+      console.log("User not authenticated:", error)
+    }
+  }
+
+  handleUserFlow()
+}, [new_user])
+
 
   /* ── render ─────────────── */
   return (
