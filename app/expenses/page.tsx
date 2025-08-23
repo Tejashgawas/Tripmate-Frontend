@@ -3,7 +3,8 @@
 import { useState, useEffect } from "react"
 import Link from "next/link"
 import DashboardShell from "@/components/dashboard-shell"
-
+import { useAuth } from "@/contexts/AuthContext"
+import { useApi } from "@/hooks/useApi"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
@@ -14,8 +15,6 @@ import {
   DollarSign, CreditCard, Receipt, TrendingUp, Calculator,
   Crown, UserCheck, Sparkles, Calendar, Star
 } from "lucide-react"
-
-const BASE_URL = "https://tripmate-39hm.onrender.com/"
 
 /* ───────────────── interfaces ───────────────── */
 interface Creator {
@@ -43,93 +42,45 @@ interface TripMembership {
 }
 
 export default function ExpensePage() {
-  const [refreshKey, setRefreshKey] = useState(0)
+  const { user } = useAuth() // ✅ NEW: Use auth context
+  const { get, loading: apiLoading, error: apiError } = useApi() // ✅ NEW: Use API client
+
   const [tripMemberships, setTripMemberships] = useState<TripMembership[]>([])
   const [loading, setLoading] = useState(true)
-  const [refreshing, setRefreshing] = useState(false)
-  const [currentUserId, setCurrentUserId] = useState<number | null>(null)
 
-  /* ───── token refresh ───── */
-  const refreshToken = async () => {
-    setRefreshing(true)
-    try {
-      const response = await fetch(`${BASE_URL}auth/refresh`, {
-        method: "POST", credentials: "include"
-      })
-      return response.ok
-    } finally {
-      setRefreshing(false)
+  /* ───── fetch trips using useApi hook ───── */
+  const fetchTrips = async () => {
+    if (!user?.id) {
+      console.log("[EXPENSES] No user ID available")
+      setLoading(false)
+      return
     }
-  }
 
-  /* ───── Get current user from GET /me ───── */
-  const getCurrentUser = async () => {
-    try {
-      console.log("[EXPENSES] Fetching current user from /me endpoint...")
-      const response = await fetch(`${BASE_URL}me/`, {
-        credentials: "include"
-      })
-      if (response.ok) {
-        const userData = await response.json()
-        console.log("[EXPENSES] Current user data:", userData)
-        setCurrentUserId(userData.id)
-        return userData.id
-      } else {
-        console.error("[EXPENSES] Failed to fetch current user:", response.status)
-      }
-    } catch (error) {
-      console.error("[EXPENSES] Error fetching current user:", error)
-    }
-    return null
-  }
-
-  /* ───── fetch trips using NEW ENDPOINT ───── */
-  const fetchTrips = async (retry = false) => {
     try {
       setLoading(true)
+      console.log("[EXPENSES] Fetching trips for user:", user.id)
 
-      // Get current user ID from /me endpoint
-      const userId = currentUserId || await getCurrentUser()
-      if (!userId) {
-        console.error("[EXPENSES] Cannot fetch trips - no user ID")
-        return
-      }
-
-      console.log("[EXPENSES] Fetching trips for user:", userId)
-
-      // Use new endpoint with user ID
-      const res = await fetch(`${BASE_URL}trip-member/users/${userId}/trips`, {
-        credentials: "include"
+      const data = await get<{ trips: TripMembership[] }>(`/trip-member/users/${user.id}/trips`)
+      const memberships = data.trips || []
+      
+      console.log("[EXPENSES] Parsed memberships:", {
+        total: memberships.length,
+        owned: memberships.filter(m => m.role === "owner").length,
+        member: memberships.filter(m => m.role === "member").length
       })
 
-      if (!res.ok && (res.status === 401 || res.status === 403) && !retry) {
-        if (await refreshToken()) return fetchTrips(true)
-      }
-
-      if (res.ok) {
-        const data = await res.json()
-        console.log("[EXPENSES] Raw API response:", data)
-
-        const memberships: TripMembership[] = data.trips || []
-        
-        console.log("[EXPENSES] Parsed memberships:", {
-          total: memberships.length,
-          owned: memberships.filter(m => m.role === "owner").length,
-          member: memberships.filter(m => m.role === "member").length
-        })
-
-        setTripMemberships(memberships)
-      } else {
-        console.error("[EXPENSES] Failed to fetch trips:", res.status)
-      }
+      setTripMemberships(memberships)
     } catch (error) {
       console.error("[EXPENSES] Error fetching trips:", error)
+      // Error handling is managed by useApi hook
     } finally {
       setLoading(false)
     }
   }
 
-  useEffect(() => { fetchTrips() }, [])
+  useEffect(() => { 
+    fetchTrips() 
+  }, [user])
 
   /* ───── helper functions ───── */
   const fmt = (d: string) =>
@@ -137,12 +88,12 @@ export default function ExpensePage() {
 
   const tripTypeColor = (t: string) =>
     ({
-      leisure:    "bg-gradient-to-br from-blue-100 to-blue-200 text-blue-800 dark:from-blue-800/30 dark:to-blue-700/30 dark:text-blue-300 border-blue-300 dark:border-blue-600",
-      adventure:  "bg-gradient-to-br from-orange-100 to-orange-200 text-orange-800 dark:from-orange-800/30 dark:to-orange-700/30 dark:text-orange-300 border-orange-300 dark:border-orange-600",
-      workation:  "bg-gradient-to-br from-purple-100 to-purple-200 text-purple-800 dark:from-purple-800/30 dark:to-purple-700/30 dark:text-purple-300 border-purple-300 dark:border-purple-600",
+      leisure: "bg-gradient-to-br from-blue-100 to-blue-200 text-blue-800 dark:from-blue-800/30 dark:to-blue-700/30 dark:text-blue-300 border-blue-300 dark:border-blue-600",
+      adventure: "bg-gradient-to-br from-orange-100 to-orange-200 text-orange-800 dark:from-orange-800/30 dark:to-orange-700/30 dark:text-orange-300 border-orange-300 dark:border-orange-600",
+      workation: "bg-gradient-to-br from-purple-100 to-purple-200 text-purple-800 dark:from-purple-800/30 dark:to-purple-700/30 dark:text-purple-300 border-purple-300 dark:border-purple-600",
       pilgrimage: "bg-gradient-to-br from-green-100 to-green-200 text-green-800 dark:from-green-800/30 dark:to-green-700/30 dark:text-green-300 border-green-300 dark:border-green-600",
-      cultural:   "bg-gradient-to-br from-pink-100 to-pink-200 text-pink-800 dark:from-pink-800/30 dark:to-pink-700/30 dark:text-pink-300 border-pink-300 dark:border-pink-600",
-      other:      "bg-gradient-to-br from-gray-100 to-gray-200 text-gray-800 dark:from-gray-800/30 dark:to-gray-700/30 dark:text-gray-300 border-gray-300 dark:border-gray-600",
+      cultural: "bg-gradient-to-br from-pink-100 to-pink-200 text-pink-800 dark:from-pink-800/30 dark:to-pink-700/30 dark:text-pink-300 border-pink-300 dark:border-pink-600",
+      other: "bg-gradient-to-br from-gray-100 to-gray-200 text-gray-800 dark:from-gray-800/30 dark:to-gray-700/30 dark:text-gray-300 border-gray-300 dark:border-gray-600",
     }[t] ?? "bg-gradient-to-br from-gray-100 to-gray-200 text-gray-800 dark:from-gray-800/30 dark:to-gray-700/30 dark:text-gray-300 border-gray-300 dark:border-gray-600")
 
   const calculateDuration = (startDate: string, endDate: string) => {
@@ -165,11 +116,11 @@ export default function ExpensePage() {
           <h1 className="text-3xl sm:text-4xl lg:text-5xl font-bold mb-4 bg-gradient-to-r from-[#1e40af] via-[#3b82f6] to-[#06b6d4] bg-clip-text text-transparent">
             Expense Tracker
           </h1>
-          <p className="text-lg sm:text-xl text-muted-foreground max-w-2xl mx-auto px-4">
+          <p className="text-base sm:text-lg lg:text-xl text-muted-foreground max-w-2xl mx-auto px-4">
             Track and split your travel expenses effortlessly. Monitor spending, settle payments, and stay within budget for all your trips.
           </p>
-          <div className="flex justify-center mt-6">
-            <div className="h-1 w-24 bg-gradient-to-r from-[#1e40af] to-[#06b6d4] rounded-full"></div>
+          <div className="flex justify-center mt-4 sm:mt-6">
+            <div className="h-1 w-20 sm:w-24 bg-gradient-to-r from-[#1e40af] to-[#06b6d4] rounded-full"></div>
           </div>
         </div>
 
@@ -178,14 +129,14 @@ export default function ExpensePage() {
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4 sm:gap-6 lg:gap-8 mb-8 sm:mb-12">
             <div className="group relative">
               <div className="absolute inset-0 bg-gradient-to-r from-[#1e40af] to-[#3b82f6] rounded-xl sm:rounded-2xl blur-lg opacity-20 group-hover:opacity-30 transition-opacity"></div>
-              <Card className="relative p-6 sm:p-8 bg-white/90 dark:bg-gray-900/90 backdrop-blur-xl border border-blue-200/50 dark:border-blue-800/50 rounded-xl sm:rounded-2xl hover:shadow-xl transition-all duration-300 transform hover:-translate-y-1">
-                <div className="flex items-center gap-4 sm:gap-6">
-                  <div className="p-3 sm:p-4 bg-gradient-to-br from-[#1e40af] to-[#3b82f6] rounded-xl sm:rounded-2xl shadow-lg">
-                    <Crown className="w-6 h-6 sm:w-8 sm:h-8 text-white" />
+              <Card className="relative p-4 sm:p-6 lg:p-8 bg-white/90 dark:bg-gray-900/90 backdrop-blur-xl border border-blue-200/50 dark:border-blue-800/50 rounded-xl sm:rounded-2xl hover:shadow-xl transition-all duration-300 transform hover:-translate-y-1">
+                <div className="flex items-center gap-3 sm:gap-4 lg:gap-6">
+                  <div className="p-2 sm:p-3 lg:p-4 bg-gradient-to-br from-[#1e40af] to-[#3b82f6] rounded-lg sm:rounded-xl lg:rounded-2xl shadow-lg">
+                    <Crown className="w-5 h-5 sm:w-6 sm:h-6 lg:w-8 lg:h-8 text-white" />
                   </div>
                   <div>
-                    <p className="text-xs sm:text-sm text-gray-600 dark:text-gray-400 mb-1 sm:mb-2 font-medium">Trips I Own</p>
-                    <p className="text-2xl sm:text-3xl lg:text-4xl font-bold text-[#1e40af] dark:text-blue-400">{ownerTrips.length}</p>
+                    <p className="text-xs sm:text-sm text-gray-600 dark:text-gray-400 mb-1 font-medium">Trips I Own</p>
+                    <p className="text-xl sm:text-2xl lg:text-4xl font-bold text-[#1e40af] dark:text-blue-400">{ownerTrips.length}</p>
                   </div>
                 </div>
               </Card>
@@ -193,14 +144,14 @@ export default function ExpensePage() {
 
             <div className="group relative">
               <div className="absolute inset-0 bg-gradient-to-r from-green-500 to-emerald-500 rounded-xl sm:rounded-2xl blur-lg opacity-20 group-hover:opacity-30 transition-opacity"></div>
-              <Card className="relative p-6 sm:p-8 bg-white/90 dark:bg-gray-900/90 backdrop-blur-xl border border-green-200/50 dark:border-green-800/50 rounded-xl sm:rounded-2xl hover:shadow-xl transition-all duration-300 transform hover:-translate-y-1">
-                <div className="flex items-center gap-4 sm:gap-6">
-                  <div className="p-3 sm:p-4 bg-gradient-to-br from-green-500 to-emerald-500 rounded-xl sm:rounded-2xl shadow-lg">
-                    <UserCheck className="w-6 h-6 sm:w-8 sm:h-8 text-white" />
+              <Card className="relative p-4 sm:p-6 lg:p-8 bg-white/90 dark:bg-gray-900/90 backdrop-blur-xl border border-green-200/50 dark:border-green-800/50 rounded-xl sm:rounded-2xl hover:shadow-xl transition-all duration-300 transform hover:-translate-y-1">
+                <div className="flex items-center gap-3 sm:gap-4 lg:gap-6">
+                  <div className="p-2 sm:p-3 lg:p-4 bg-gradient-to-br from-green-500 to-emerald-500 rounded-lg sm:rounded-xl lg:rounded-2xl shadow-lg">
+                    <UserCheck className="w-5 h-5 sm:w-6 sm:h-6 lg:w-8 lg:h-8 text-white" />
                   </div>
                   <div>
-                    <p className="text-xs sm:text-sm text-gray-600 dark:text-gray-400 mb-1 sm:mb-2 font-medium">Member of</p>
-                    <p className="text-2xl sm:text-3xl lg:text-4xl font-bold text-green-600 dark:text-green-400">{memberTrips.length}</p>
+                    <p className="text-xs sm:text-sm text-gray-600 dark:text-gray-400 mb-1 font-medium">Member of</p>
+                    <p className="text-xl sm:text-2xl lg:text-4xl font-bold text-green-600 dark:text-green-400">{memberTrips.length}</p>
                   </div>
                 </div>
               </Card>
@@ -208,14 +159,14 @@ export default function ExpensePage() {
 
             <div className="group relative">
               <div className="absolute inset-0 bg-gradient-to-r from-purple-500 to-pink-500 rounded-xl sm:rounded-2xl blur-lg opacity-20 group-hover:opacity-30 transition-opacity"></div>
-              <Card className="relative p-6 sm:p-8 bg-white/90 dark:bg-gray-900/90 backdrop-blur-xl border border-purple-200/50 dark:border-purple-800/50 rounded-xl sm:rounded-2xl hover:shadow-xl transition-all duration-300 transform hover:-translate-y-1">
-                <div className="flex items-center gap-4 sm:gap-6">
-                  <div className="p-3 sm:p-4 bg-gradient-to-br from-purple-500 to-pink-500 rounded-xl sm:rounded-2xl shadow-lg">
-                    <IndianRupee className="w-6 h-6 sm:w-8 sm:h-8 text-white" />
+              <Card className="relative p-4 sm:p-6 lg:p-8 bg-white/90 dark:bg-gray-900/90 backdrop-blur-xl border border-purple-200/50 dark:border-purple-800/50 rounded-xl sm:rounded-2xl hover:shadow-xl transition-all duration-300 transform hover:-translate-y-1">
+                <div className="flex items-center gap-3 sm:gap-4 lg:gap-6">
+                  <div className="p-2 sm:p-3 lg:p-4 bg-gradient-to-br from-purple-500 to-pink-500 rounded-lg sm:rounded-xl lg:rounded-2xl shadow-lg">
+                    <IndianRupee className="w-5 h-5 sm:w-6 sm:h-6 lg:w-8 lg:h-8 text-white" />
                   </div>
                   <div>
-                    <p className="text-xs sm:text-sm text-gray-600 dark:text-gray-400 mb-1 sm:mb-2 font-medium">Total Expenses</p>
-                    <p className="text-2xl sm:text-3xl lg:text-4xl font-bold text-purple-600 dark:text-purple-400">{tripMemberships.length}</p>
+                    <p className="text-xs sm:text-sm text-gray-600 dark:text-gray-400 mb-1 font-medium">Total Expenses</p>
+                    <p className="text-xl sm:text-2xl lg:text-4xl font-bold text-purple-600 dark:text-purple-400">{tripMemberships.length}</p>
                   </div>
                 </div>
               </Card>
@@ -224,14 +175,14 @@ export default function ExpensePage() {
         )}
 
         {/* Refresh Button */}
-        <div className="flex justify-center mb-8">
+        <div className="flex justify-center mb-6 sm:mb-8">
           <Button
             onClick={() => fetchTrips()}
-            disabled={loading || refreshing}
+            disabled={loading}
             variant="outline"
-            className="h-10 sm:h-12 px-6 sm:px-8 rounded-lg sm:rounded-xl border-[#06b6d4] text-[#06b6d4] hover:bg-[#06b6d4]/10"
+            className="h-10 sm:h-12 px-4 sm:px-6 lg:px-8 rounded-lg sm:rounded-xl border-[#06b6d4] text-[#06b6d4] hover:bg-[#06b6d4]/10"
           >
-            {loading || refreshing ? (
+            {loading ? (
               <Loader2 className="h-4 w-4 sm:h-5 sm:w-5 animate-spin mr-2"/>
             ) : (
               <RefreshCw className="h-4 w-4 sm:h-5 sm:w-5 mr-2"/>
@@ -240,14 +191,6 @@ export default function ExpensePage() {
           </Button>
         </div>
 
-        {/* refreshing banner */}
-        {refreshing && (
-          <div className="mb-6 p-4 bg-[#1e40af]/10 border border-[#1e40af]/20 rounded-lg flex items-center">
-            <Loader2 className="h-4 w-4 animate-spin text-[#1e40af] mr-3"/>
-            <span className="text-[#1e40af]">Refreshing authentication…</span>
-          </div>
-        )}
-
         {/* Loading State */}
         {loading ? (
           <div className="flex flex-col items-center py-16 sm:py-20">
@@ -255,33 +198,33 @@ export default function ExpensePage() {
               <div className="w-12 h-12 sm:w-16 sm:h-16 bg-gradient-to-r from-[#1e40af] to-[#06b6d4] rounded-full animate-pulse"></div>
               <Loader2 className="absolute inset-0 w-12 h-12 sm:w-16 sm:h-16 animate-spin text-white p-3 sm:p-4"/>
             </div>
-            <p className="mt-4 sm:mt-6 text-lg sm:text-xl text-muted-foreground">Loading your expense trackers…</p>
+            <p className="mt-4 sm:mt-6 text-base sm:text-lg lg:text-xl text-muted-foreground">Loading your expense trackers…</p>
           </div>
         ) : tripMemberships.length === 0 ? (
           /* Empty State */
           <div className="text-center py-16 sm:py-20">
             <div className="relative inline-block mb-6 sm:mb-8">
-              <div className="w-24 h-24 sm:w-32 sm:h-32 bg-gradient-to-br from-gray-100 to-gray-200 dark:from-gray-800 dark:to-gray-700 rounded-full flex items-center justify-center">
-                <IndianRupee className="h-12 w-12 sm:h-16 sm:w-16 text-muted-foreground"/>
+              <div className="w-20 h-20 sm:w-24 sm:h-24 lg:w-32 lg:h-32 bg-gradient-to-br from-gray-100 to-gray-200 dark:from-gray-800 dark:to-gray-700 rounded-full flex items-center justify-center">
+                <IndianRupee className="h-10 w-10 sm:h-12 sm:w-12 lg:h-16 lg:w-16 text-muted-foreground"/>
               </div>
               <div className="absolute -top-1 -right-1 sm:-top-2 sm:-right-2 w-6 h-6 sm:w-8 sm:h-8 bg-gradient-to-r from-[#1e40af] to-[#06b6d4] rounded-full flex items-center justify-center">
                 <Sparkles className="w-3 h-3 sm:w-4 sm:h-4 text-white"/>
               </div>
             </div>
-            <h3 className="text-2xl sm:text-3xl font-bold mb-4">No Trips Found</h3>
-            <p className="text-lg sm:text-xl text-muted-foreground mb-6 sm:mb-8 max-w-md mx-auto px-4">
+            <h3 className="text-xl sm:text-2xl lg:text-3xl font-bold mb-2 sm:mb-4">No Trips Found</h3>
+            <p className="text-base sm:text-lg lg:text-xl text-muted-foreground mb-6 sm:mb-8 max-w-md mx-auto px-4">
               You need to create trips first before tracking expenses. Start your journey by creating your first trip!
             </p>
             <Link href="/create-trip">
-              <Button className="h-12 sm:h-14 px-6 sm:px-8 rounded-xl bg-gradient-to-r from-[#1e40af] to-[#06b6d4] hover:from-[#1e40af]/90 hover:to-[#06b6d4]/90 text-base sm:text-lg font-semibold shadow-xl hover:shadow-2xl transition-all transform hover:-translate-y-1">
-                <Plus className="h-5 w-5 sm:h-6 sm:w-6 mr-2 sm:mr-3"/>
+              <Button className="h-10 sm:h-12 lg:h-14 px-4 sm:px-6 lg:px-8 rounded-lg sm:rounded-xl bg-gradient-to-r from-[#1e40af] to-[#06b6d4] hover:from-[#1e40af]/90 hover:to-[#06b6d4]/90 text-sm sm:text-base lg:text-lg font-semibold shadow-xl hover:shadow-2xl transition-all transform hover:-translate-y-1">
+                <Plus className="h-4 w-4 sm:h-5 sm:w-5 lg:h-6 lg:w-6 mr-2"/>
                 Create Your First Trip
               </Button>
             </Link>
           </div>
         ) : (
           /* Enhanced Trip Cards */
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6 sm:gap-8">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6 lg:gap-8">
             {tripMemberships.map((membership) => {
               const trip = membership.trip
               const isOwner = membership.role === "owner"
@@ -289,39 +232,39 @@ export default function ExpensePage() {
               
               return (
                 <div key={trip.id} className="group">
-                  <Card className="relative overflow-hidden bg-white/90 dark:bg-gray-900/90 backdrop-blur-xl border border-gray-200/50 dark:border-gray-800/50 rounded-2xl sm:rounded-3xl shadow-lg hover:shadow-xl transition-all duration-300 transform hover:-translate-y-1 hover:scale-[1.01]">
+                  <Card className="relative overflow-hidden bg-white/90 dark:bg-gray-900/90 backdrop-blur-xl border border-gray-200/50 dark:border-gray-800/50 rounded-xl sm:rounded-2xl lg:rounded-3xl shadow-lg hover:shadow-xl transition-all duration-300 transform hover:-translate-y-1 hover:scale-[1.01]">
                     {/* Role Badge */}
-                    <div className="absolute top-4 sm:top-6 right-4 sm:right-6 z-30">
+                    <div className="absolute top-3 sm:top-4 lg:top-6 right-3 sm:right-4 lg:right-6 z-30">
                       {isOwner ? (
-                        <Badge className="bg-gradient-to-r from-[#1e40af] to-[#3b82f6] text-white border-0 px-3 sm:px-4 py-1 sm:py-2 rounded-full shadow-lg text-xs sm:text-sm">
-                          <Crown className="w-3 h-3 sm:w-4 sm:h-4 mr-1 sm:mr-2" />
+                        <Badge className="bg-gradient-to-r from-[#1e40af] to-[#3b82f6] text-white border-0 px-2 sm:px-3 py-1 sm:py-2 rounded-full shadow-lg text-xs">
+                          <Crown className="w-3 h-3 sm:w-4 sm:h-4 mr-1" />
                           Owner
                         </Badge>
                       ) : (
-                        <Badge className="bg-gradient-to-r from-emerald-500 to-teal-500 text-white border-0 px-3 sm:px-4 py-1 sm:py-2 rounded-full shadow-lg text-xs sm:text-sm">
-                          <UserCheck className="w-3 h-3 sm:w-4 sm:h-4 mr-1 sm:mr-2" />
+                        <Badge className="bg-gradient-to-r from-emerald-500 to-teal-500 text-white border-0 px-2 sm:px-3 py-1 sm:py-2 rounded-full shadow-lg text-xs">
+                          <UserCheck className="w-3 h-3 sm:w-4 sm:h-4 mr-1" />
                           Member
                         </Badge>
                       )}
                     </div>
 
-                    <div className="relative z-20 p-6 sm:p-8">
+                    <div className="relative z-20 p-4 sm:p-6 lg:p-8">
                       {/* Trip Header */}
                       <div className="mb-4 sm:mb-6 pr-16 sm:pr-20">
-                        <h3 className="text-lg sm:text-2xl font-bold mb-2 sm:mb-3 text-gray-900 dark:text-white group-hover:text-[#1e40af] dark:group-hover:text-blue-400 transition-colors">
+                        <h3 className="text-base sm:text-lg lg:text-2xl font-bold mb-2 sm:mb-3 text-gray-900 dark:text-white group-hover:text-[#1e40af] dark:group-hover:text-blue-400 transition-colors">
                           {trip.title}
                         </h3>
                         
                         <div className="space-y-2 sm:space-y-3">
-                          <div className="flex items-center text-gray-600 dark:text-gray-400 text-sm sm:text-base">
-                            <MapPin className="h-4 w-4 sm:h-5 sm:w-5 mr-2 sm:mr-3 text-[#06b6d4] flex-shrink-0"/>
+                          <div className="flex items-center text-gray-600 dark:text-gray-400 text-xs sm:text-sm lg:text-base">
+                            <MapPin className="h-3 w-3 sm:h-4 sm:w-4 lg:h-5 lg:w-5 mr-2 text-[#06b6d4] flex-shrink-0"/>
                             <span className="font-medium truncate">{trip.location}</span>
                           </div>
                           
-                          <div className="flex items-center text-gray-600 dark:text-gray-400 text-sm sm:text-base">
-                            <Calendar className="h-4 w-4 sm:h-5 sm:w-5 mr-2 sm:mr-3 text-[#06b6d4] flex-shrink-0"/>
+                          <div className="flex items-center text-gray-600 dark:text-gray-400 text-xs sm:text-sm lg:text-base">
+                            <Calendar className="h-3 w-3 sm:h-4 sm:w-4 lg:h-5 lg:w-5 mr-2 text-[#06b6d4] flex-shrink-0"/>
                             <span className="truncate">{fmt(trip.start_date)} → {fmt(trip.end_date)}</span>
-                            <Badge variant="secondary" className="ml-2 sm:ml-3 px-2 sm:px-3 py-1 rounded-full text-xs bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 flex-shrink-0">
+                            <Badge variant="secondary" className="ml-2 px-2 py-1 rounded-full text-xs bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 flex-shrink-0">
                               {duration}
                             </Badge>
                           </div>
@@ -334,12 +277,12 @@ export default function ExpensePage() {
                       </div>
 
                       {/* Trip Details */}
-                      <div className="space-y-4 sm:space-y-6">
-                        <div className="flex items-center justify-between gap-3">
-                          <Badge className={`px-3 sm:px-4 py-1 sm:py-2 rounded-full border font-medium text-xs sm:text-sm flex-shrink-0 ${tripTypeColor(trip.trip_type)}`}>
+                      <div className="space-y-3 sm:space-y-4 lg:space-y-6">
+                        <div className="flex items-center justify-between gap-2 sm:gap-3">
+                          <Badge className={`px-2 sm:px-3 py-1 sm:py-2 rounded-full border font-medium text-xs sm:text-sm flex-shrink-0 ${tripTypeColor(trip.trip_type)}`}>
                             {trip.trip_type.charAt(0).toUpperCase() + trip.trip_type.slice(1)}
                           </Badge>
-                          <div className="flex items-center gap-1 sm:gap-2 px-3 sm:px-4 py-1 sm:py-2 bg-gradient-to-r from-emerald-50 to-teal-50 dark:from-emerald-900/20 dark:to-teal-900/20 rounded-full flex-shrink-0">
+                          <div className="flex items-center gap-1 sm:gap-2 px-2 sm:px-3 py-1 sm:py-2 bg-gradient-to-r from-emerald-50 to-teal-50 dark:from-emerald-900/20 dark:to-teal-900/20 rounded-full flex-shrink-0">
                             <span className="font-bold text-emerald-700 dark:text-emerald-300 text-xs sm:text-sm">
                               ₹{trip.budget.toLocaleString()}
                             </span>
@@ -357,8 +300,8 @@ export default function ExpensePage() {
 
                         {/* Expense Stats Preview */}
                         <div className="p-3 sm:p-4 bg-gradient-to-r from-[#1e40af]/5 via-transparent to-[#06b6d4]/5 rounded-lg border border-[#06b6d4]/20">
-                          <div className="flex items-center gap-2 text-sm text-[#1e40af]">
-                            <Calculator className="h-4 w-4"/>
+                          <div className="flex items-center gap-2 text-xs sm:text-sm text-[#1e40af]">
+                            <Calculator className="h-3 w-3 sm:h-4 sm:w-4"/>
                             <span className="font-medium">Budget Tracking Available</span>
                           </div>
                         </div>
@@ -368,9 +311,9 @@ export default function ExpensePage() {
                           {/* Track Expenses */}
                           <Link href={`/dashboard/trips/${trip.id}/expenses`}>
                             <Button 
-                              className="w-full h-10 sm:h-12 rounded-lg sm:rounded-xl bg-gradient-to-r from-[#1e40af] to-[#3b82f6] text-white hover:from-[#1e40af]/90 hover:to-[#3b82f6]/90 shadow-lg font-semibold transition-all text-sm sm:text-base"
+                              className="w-full h-10 sm:h-12 rounded-lg sm:rounded-xl bg-gradient-to-r from-[#1e40af] to-[#3b82f6] text-white hover:from-[#1e40af]/90 hover:to-[#3b82f6]/90 shadow-lg font-semibold transition-all text-xs sm:text-sm lg:text-base"
                             >
-                              <Receipt className="h-4 w-4 sm:h-5 sm:w-5 mr-2"/>
+                              <Receipt className="h-3 w-3 sm:h-4 sm:w-4 lg:h-5 lg:w-5 mr-2"/>
                               Track Expenses
                             </Button>
                           </Link>
@@ -379,11 +322,11 @@ export default function ExpensePage() {
                           <Link href={`/dashboard/trips/${trip.id}/expense-dashboard`}>
                             <Button 
                               variant="outline"
-                              className="w-full h-10 sm:h-12 rounded-lg sm:rounded-xl border-2 border-[#06b6d4] text-[#06b6d4] hover:bg-[#06b6d4]/10 font-semibold transition-all text-sm sm:text-base"
+                              className="w-full h-10 sm:h-12 rounded-lg sm:rounded-xl border-2 border-[#06b6d4] text-[#06b6d4] hover:bg-[#06b6d4]/10 font-semibold transition-all text-xs sm:text-sm lg:text-base"
                             >
-                              <BarChart3 className="h-4 w-4 sm:h-5 sm:w-5 mr-2"/>
+                              <BarChart3 className="h-3 w-3 sm:h-4 sm:w-4 lg:h-5 lg:w-5 mr-2"/>
                               Dashboard
-                              <ArrowRight className="h-4 w-4 sm:h-5 sm:w-5 ml-auto"/>
+                              <ArrowRight className="h-3 w-3 sm:h-4 sm:w-4 lg:h-5 lg:w-5 ml-auto"/>
                             </Button>
                           </Link>
 
@@ -391,11 +334,11 @@ export default function ExpensePage() {
                           <Link href={`/dashboard/trips/${trip.id}/settlements`}>
                             <Button 
                               variant="outline"
-                              className="w-full h-10 sm:h-12 rounded-lg sm:rounded-xl border-2 border-[#1e40af] text-[#1e40af] hover:bg-[#1e40af]/10 font-semibold transition-all text-sm sm:text-base"
+                              className="w-full h-10 sm:h-12 rounded-lg sm:rounded-xl border-2 border-[#1e40af] text-[#1e40af] hover:bg-[#1e40af]/10 font-semibold transition-all text-xs sm:text-sm lg:text-base"
                             >
-                              <CreditCard className="h-4 w-4 sm:h-5 sm:w-5 mr-2"/>
+                              <CreditCard className="h-3 w-3 sm:h-4 sm:w-4 lg:h-5 lg:w-5 mr-2"/>
                               Settle Up
-                              <ArrowRight className="h-4 w-4 sm:h-5 sm:w-5 ml-auto"/>
+                              <ArrowRight className="h-3 w-3 sm:h-4 sm:w-4 lg:h-5 lg:w-5 ml-auto"/>
                             </Button>
                           </Link>
                         </div>
@@ -413,18 +356,18 @@ export default function ExpensePage() {
 
         {/* Quick Actions Footer */}
         {tripMemberships.length > 0 && (
-          <div className="mt-12 pt-8 border-t border-border/30">
+          <div className="mt-10 sm:mt-12 pt-6 sm:pt-8 border-t border-border/30">
             <div className="text-center">
-              <h3 className="text-lg font-semibold mb-4">Ready to track expenses for your next trip?</h3>
-              <div className="flex flex-wrap justify-center gap-4">
+              <h3 className="text-base sm:text-lg font-semibold mb-3 sm:mb-4">Ready to track expenses for your next trip?</h3>
+              <div className="flex flex-col sm:flex-row justify-center gap-3 sm:gap-4">
                 <Link href="/create-trip">
-                  <Button variant="outline" className="border-[#1e40af] text-[#1e40af] hover:bg-[#1e40af]/10">
+                  <Button variant="outline" className="w-full sm:w-auto border-[#1e40af] text-[#1e40af] hover:bg-[#1e40af]/10 h-10 sm:h-12 px-4 sm:px-6 rounded-lg sm:rounded-xl">
                     <Plus className="h-4 w-4 mr-2"/>
                     Create New Trip
                   </Button>
                 </Link>
                 <Link href="/trips">
-                  <Button variant="outline" className="border-[#06b6d4] text-[#06b6d4] hover:bg-[#06b6d4]/10">
+                  <Button variant="outline" className="w-full sm:w-auto border-[#06b6d4] text-[#06b6d4] hover:bg-[#06b6d4]/10 h-10 sm:h-12 px-4 sm:px-6 rounded-lg sm:rounded-xl">
                     <MapPin className="h-4 w-4 mr-2"/>
                     Manage Trips
                   </Button>

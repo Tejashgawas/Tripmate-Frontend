@@ -5,7 +5,8 @@ import { useParams } from "next/navigation";
 import Link from "next/link";
 import DashboardShell from "@/components/dashboard-shell";
 import TaskComponent from "@/components/task-component";
-
+import { useAuth } from "@/contexts/AuthContext";
+import { useApi } from "@/hooks/useApi";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -21,8 +22,6 @@ import {
   CheckCircle,
   AlertTriangle,
 } from "lucide-react";
-
-const BASE_URL = "https://tripmate-39hm.onrender.com/";
 
 enum TaskPriority {
   LOW = "low",
@@ -97,13 +96,15 @@ const initialTaskForm: TaskForm = {
 export default function TripChecklistPage() {
   const params = useParams();
   const tripId = params?.tripId as string;
+  const { user } = useAuth();
+  const { get, post, loading: apiLoading, error: apiError } = useApi();
   
   // State management
   const [refreshKey, setRefreshKey] = useState(0);
   const [tasks, setTasks] = useState<Task[]>([]);
   const [loading, setLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [initialLoad, setInitialLoad] = useState(true); // ✅ NEW: Track initial load
 
   // Modal states
   const [showAddTask, setShowAddTask] = useState(false);
@@ -134,59 +135,35 @@ export default function TripChecklistPage() {
     setTimeout(() => setShowSuccess(false), 2000);
   }, []);
 
-  const refreshToken = useCallback(async (): Promise<boolean> => {
-    setRefreshing(true);
-    try {
-      const response = await fetch(`${BASE_URL}auth/refresh`, {
-        method: "POST",
-        credentials: "include"
-      });
-      return response.ok;
-    } catch (error) {
-      console.error("[TOKEN] Refresh failed:", error);
-      return false;
-    } finally {
-      setRefreshing(false);
-    }
-  }, []);
-
-  const fetchTasks = useCallback(async (retry = false) => {
-    if (!tripId) return;
+  // ✅ FIXED: Remove tasks.length from dependencies
+  const fetchTasks = useCallback(async () => {
+    if (!tripId || !user) return;
 
     try {
-      if (!tasks.length) setLoading(true);
+      // ✅ FIXED: Use initialLoad instead of tasks.length
+      if (initialLoad) setLoading(true);
 
       const params = new URLSearchParams();
       if (priorityFilter !== "all") params.set("priority", priorityFilter);
       if (categoryFilter !== "all") params.set("category", categoryFilter);
 
-      const res = await fetch(`${BASE_URL}trips/${tripId}/checklist?${params}`, {
-        credentials: "include"
-      });
-
-      if (!res.ok && (res.status === 401 || res.status === 403) && !retry) {
-        const tokenRefreshed = await refreshToken();
-        if (tokenRefreshed) return fetchTasks(true);
-      }
-
-      if (res.ok) {
-        const data = await res.json();
-        const newTasks = Array.isArray(data) ? data : data.tasks || [];
-        
-        setTasks([...newTasks]);
-        setRefreshKey(prev => prev + 1);
-        
-        console.log(`[CHECKLIST] Refreshed ${newTasks.length} tasks`);
-      } else {
-        throw new Error(`HTTP ${res.status}: ${res.statusText}`);
-      }
+      console.log(`[CHECKLIST] Fetching tasks for trip ${tripId}...`);
+      
+      const data = await get<Task[]>(`/trips/${tripId}/checklist?${params}`);
+      const newTasks = Array.isArray(data) ? data : (data as any)?.tasks || [];
+      
+      setTasks(newTasks); // ✅ FIXED: Don't spread array
+      setRefreshKey(prev => prev + 1);
+      setInitialLoad(false); // ✅ NEW: Mark initial load complete
+      
+      console.log(`[CHECKLIST] Loaded ${newTasks.length} tasks`);
     } catch (error) {
       console.error("[CHECKLIST] Error fetching tasks:", error);
       showErrorModal("Failed to Load Tasks", "Unable to fetch tasks. Please try again.");
     } finally {
       setLoading(false);
     }
-  }, [tripId, tasks.length, priorityFilter, categoryFilter, refreshToken, showErrorModal]);
+  }, [tripId, user, priorityFilter, categoryFilter, get, showErrorModal, initialLoad]); // ✅ FIXED: Removed tasks.length
 
   const formatDateForBackend = (dateString: string): string => {
     try {
@@ -200,7 +177,7 @@ export default function TripChecklistPage() {
     }
   };
 
-  const addTask = useCallback(async (retry = false) => {
+  const addTask = useCallback(async () => {
     if (!tripId || !taskForm.title.trim()) return;
 
     try {
@@ -222,42 +199,24 @@ export default function TripChecklistPage() {
         }
       }
 
-      const res = await fetch(`${BASE_URL}trips/${tripId}/checklist`, {
-        method: "POST",
-        credentials: "include",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(requestBody)
-      });
+      console.log("[CHECKLIST] Adding task:", requestBody);
 
-      if (!res.ok && (res.status === 401 || res.status === 403) && !retry) {
-        const tokenRefreshed = await refreshToken();
-        if (tokenRefreshed) return addTask(true);
-      }
-
-      if (res.ok) {
-        setShowAddTask(false);
-        setTaskForm(initialTaskForm);
-        showSuccessModal("Task added successfully!");
-        
-        setTimeout(async () => {
-          await fetchTasks();
-        }, 200);
-      } else {
-        try {
-          const errorData = await res.json();
-          showErrorModal("Failed to Add Task", errorData.detail || `Server error: ${res.status}`);
-        } catch {
-          const errorText = await res.text();
-          showErrorModal("Failed to Add Task", errorText || `Server error: ${res.status}`);
-        }
-      }
+      await post(`/trips/${tripId}/checklist`, requestBody);
+      
+      console.log("[CHECKLIST] Task added successfully");
+      setShowAddTask(false);
+      setTaskForm(initialTaskForm);
+      showSuccessModal("Task added successfully!");
+      
+      // ✅ FIXED: Direct call instead of setTimeout
+      fetchTasks();
     } catch (error) {
       console.error("[CHECKLIST] Error adding task:", error);
-      showErrorModal("Network Error", "Unable to connect to server. Please check your connection and try again.");
+      showErrorModal("Failed to Add Task", "Unable to add task. Please try again.");
     } finally {
       setSaving(false);
     }
-  }, [tripId, taskForm, refreshToken, showErrorModal, showSuccessModal, fetchTasks]);
+  }, [tripId, taskForm, post, showErrorModal, showSuccessModal, fetchTasks]);
 
   const handleTaskUpdate = useCallback(async (message: string, taskId?: number, isError: boolean = false) => {
     console.log("[CHECKLIST] Task update:", { message, taskId, isError });
@@ -266,19 +225,24 @@ export default function TripChecklistPage() {
       showErrorModal("Task Operation Failed", message);
     } else {
       showSuccessModal(message);
-      await fetchTasks();
+      fetchTasks(); // ✅ FIXED: Direct call
     }
   }, [showErrorModal, showSuccessModal, fetchTasks]);
 
-  // Effects
+  // ✅ FIXED: Only run on mount and when tripId/user changes
   useEffect(() => {
-    fetchTasks();
-  }, [fetchTasks]);
+    if (tripId && user) {
+      fetchTasks();
+    }
+  }, [tripId, user]); // ✅ FIXED: Removed fetchTasks from dependencies
 
+  // ✅ FIXED: Separate effect for filter changes
   useEffect(() => {
-    const timeoutId = setTimeout(() => fetchTasks(), 500);
-    return () => clearTimeout(timeoutId);
-  }, [priorityFilter, categoryFilter, fetchTasks]);
+    if (!initialLoad) { // Only refetch if not initial load
+      const timeoutId = setTimeout(() => fetchTasks(), 500);
+      return () => clearTimeout(timeoutId);
+    }
+  }, [priorityFilter, categoryFilter]); // ✅ FIXED: Removed fetchTasks
 
   // Computed values
   const filteredTasks = tasks.filter(task => {
@@ -294,13 +258,6 @@ export default function TripChecklistPage() {
     urgent: tasks.filter(t => t.priority === TaskPriority.URGENT).length,
   };
 
-  const priorityColor = (priority: TaskPriority): string => ({
-    low: "bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-300",
-    medium: "bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-300",
-    high: "bg-orange-100 text-orange-800 dark:bg-orange-900 dark:text-orange-300",
-    urgent: "bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-300",
-  }[priority]);
-
   // Early returns
   if (!tripId) {
     return (
@@ -314,67 +271,72 @@ export default function TripChecklistPage() {
 
   return (
     <DashboardShell>
-      <div className="container mx-auto px-6 py-8">
+      <div className="container mx-auto px-4 sm:px-6 py-6 sm:py-8">
         {/* Header */}
-        <div className="flex items-center gap-4 mb-8">
-          <Link href="/checklist">
-            <Button variant="ghost" size="icon" className="hover:bg-[#1e40af]/10">
-              <ArrowLeft className="h-5 w-5 text-[#1e40af]" />
-            </Button>
-          </Link>
-          <div className="flex-1">
-            <h1 className="text-4xl font-bold bg-gradient-to-r from-[#1e40af] to-[#06b6d4] bg-clip-text text-transparent">
-              Trip Checklist
-            </h1>
-            <p className="text-muted-foreground">
-              Organize and track your travel preparation tasks
-            </p>
+        <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4 mb-6 sm:mb-8">
+          <div className="flex items-center gap-3 sm:gap-4 flex-1">
+            <Link href="/checklist">
+              <Button variant="ghost" size="icon" className="hover:bg-[#1e40af]/10 w-10 h-10 sm:w-12 sm:h-12 rounded-full">
+                <ArrowLeft className="h-4 w-4 sm:h-5 sm:w-5 text-[#1e40af]" />
+              </Button>
+            </Link>
+            <div className="flex-1">
+              <h1 className="text-2xl sm:text-3xl lg:text-4xl font-bold bg-gradient-to-r from-[#1e40af] to-[#06b6d4] bg-clip-text text-transparent">
+                Trip Checklist
+              </h1>
+              <p className="text-sm sm:text-base text-muted-foreground">
+                Organize and track your travel preparation tasks
+              </p>
+            </div>
           </div>
-          <Link href={`/checklist/trip/${tripId}/dashboard`}>
-            <Button variant="outline" className="border-[#06b6d4] text-[#06b6d4] hover:bg-[#06b6d4]/10">
-              <BarChart3 className="h-4 w-4 mr-2" />
-              Dashboard
+          
+          <div className="flex flex-col sm:flex-row gap-2 sm:gap-3 w-full sm:w-auto">
+            <Link href={`/checklist/trip/${tripId}/dashboard`}>
+              <Button variant="outline" className="w-full sm:w-auto border-[#06b6d4] text-[#06b6d4] hover:bg-[#06b6d4]/10 h-10 sm:h-12 px-4 sm:px-6 rounded-lg sm:rounded-xl">
+                <BarChart3 className="h-4 w-4 mr-2" />
+                Dashboard
+              </Button>
+            </Link>
+            <Button
+              onClick={() => setShowAddTask(true)}
+              className="w-full sm:w-auto bg-gradient-to-r from-[#1e40af] to-[#3b82f6] text-white h-10 sm:h-12 px-4 sm:px-6 rounded-lg sm:rounded-xl"
+            >
+              <Plus className="h-4 w-4 mr-2" />
+              Add Task
             </Button>
-          </Link>
-          <Button
-            onClick={() => setShowAddTask(true)}
-            className="bg-gradient-to-r from-[#1e40af] to-[#3b82f6] text-white"
-          >
-            <Plus className="h-4 w-4 mr-2" />
-            Add Task
-          </Button>
+          </div>
         </div>
 
         {/* Summary Statistics */}
         {taskStats.total > 0 && (
-          <div className="mb-6 grid grid-cols-2 md:grid-cols-4 gap-4">
-            <div className="text-center p-4 bg-muted/20 rounded-lg">
-              <div className="text-2xl font-bold text-[#1e40af]">{taskStats.total}</div>
-              <div className="text-sm text-muted-foreground">Total Tasks</div>
+          <div className="mb-6 grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
+            <div className="text-center p-3 sm:p-4 bg-muted/20 rounded-lg sm:rounded-xl">
+              <div className="text-xl sm:text-2xl font-bold text-[#1e40af]">{taskStats.total}</div>
+              <div className="text-xs sm:text-sm text-muted-foreground">Total Tasks</div>
             </div>
-            <div className="text-center p-4 bg-muted/20 rounded-lg">
-              <div className="text-2xl font-bold text-green-600">{taskStats.completed}</div>
-              <div className="text-sm text-muted-foreground">Completed</div>
+            <div className="text-center p-3 sm:p-4 bg-muted/20 rounded-lg sm:rounded-xl">
+              <div className="text-xl sm:text-2xl font-bold text-green-600">{taskStats.completed}</div>
+              <div className="text-xs sm:text-sm text-muted-foreground">Completed</div>
             </div>
-            <div className="text-center p-4 bg-muted/20 rounded-lg">
-              <div className="text-2xl font-bold text-orange-600">{taskStats.pending}</div>
-              <div className="text-sm text-muted-foreground">Pending</div>
+            <div className="text-center p-3 sm:p-4 bg-muted/20 rounded-lg sm:rounded-xl">
+              <div className="text-xl sm:text-2xl font-bold text-orange-600">{taskStats.pending}</div>
+              <div className="text-xs sm:text-sm text-muted-foreground">Pending</div>
             </div>
-            <div className="text-center p-4 bg-muted/20 rounded-lg">
-              <div className="text-2xl font-bold text-red-600">{taskStats.urgent}</div>
-              <div className="text-sm text-muted-foreground">Urgent</div>
+            <div className="text-center p-3 sm:p-4 bg-muted/20 rounded-lg sm:rounded-xl">
+              <div className="text-xl sm:text-2xl font-bold text-red-600">{taskStats.urgent}</div>
+              <div className="text-xs sm:text-sm text-muted-foreground">Urgent</div>
             </div>
           </div>
         )}
 
         {/* Filters */}
-        <Card className="p-6 mb-6 bg-background/80 backdrop-blur-sm">
-          <div className="flex flex-wrap gap-4 justify-center">
+        <Card className="p-4 sm:p-6 mb-6 bg-background/80 backdrop-blur-sm rounded-xl sm:rounded-2xl">
+          <div className="flex flex-col sm:flex-row flex-wrap gap-3 sm:gap-4 justify-center">
             {/* Priority Filter */}
             <select
               value={priorityFilter}
               onChange={(e) => setPriorityFilter(e.target.value as TaskPriority | "all")}
-              className="px-4 py-2 border rounded-md bg-background min-w-[150px]"
+              className="px-3 sm:px-4 py-2 border rounded-md bg-background min-w-[140px] sm:min-w-[150px] text-sm sm:text-base h-10 sm:h-12"
             >
               <option value="all">All Priorities</option>
               <option value={TaskPriority.LOW}>Low</option>
@@ -387,7 +349,7 @@ export default function TripChecklistPage() {
             <select
               value={categoryFilter}
               onChange={(e) => setCategoryFilter(e.target.value as TaskCategory | "all")}
-              className="px-4 py-2 border rounded-md bg-background min-w-[150px]"
+              className="px-3 sm:px-4 py-2 border rounded-md bg-background min-w-[140px] sm:min-w-[150px] text-sm sm:text-base h-10 sm:h-12"
             >
               <option value="all">All Categories</option>
               <option value={TaskCategory.DOCUMENTS}>Documents</option>
@@ -403,7 +365,7 @@ export default function TripChecklistPage() {
             <select
               value={statusFilter}
               onChange={(e) => setStatusFilter(e.target.value as "all" | "completed" | "pending")}
-              className="px-4 py-2 border rounded-md bg-background min-w-[150px]"
+              className="px-3 sm:px-4 py-2 border rounded-md bg-background min-w-[140px] sm:min-w-[150px] text-sm sm:text-base h-10 sm:h-12"
             >
               <option value="all">All Tasks</option>
               <option value="pending">Pending</option>
@@ -414,15 +376,22 @@ export default function TripChecklistPage() {
 
         {/* Tasks List */}
         {loading ? (
-          <div className="flex flex-col items-center py-20">
-            <Loader2 className="h-8 w-8 animate-spin text-[#1e40af] mb-4" />
-            <p className="text-muted-foreground">Loading tasks…</p>
+          <div className="flex flex-col items-center py-16 sm:py-20">
+            <div className="relative">
+              <div className="w-12 h-12 sm:w-16 sm:h-16 bg-gradient-to-r from-[#1e40af] to-[#06b6d4] rounded-full animate-pulse"></div>
+              <Loader2 className="absolute inset-0 w-12 h-12 sm:w-16 sm:h-16 animate-spin text-white p-3 sm:p-4"/>
+            </div>
+            <p className="mt-4 sm:mt-6 text-base sm:text-lg text-muted-foreground">Loading tasks…</p>
           </div>
         ) : filteredTasks.length === 0 ? (
-          <div className="text-center py-20">
-            <CheckSquare className="h-16 w-16 text-muted-foreground mx-auto mb-4" />
-            <h3 className="text-xl font-semibold mb-2">No Tasks Found</h3>
-            <p className="text-muted-foreground mb-6">
+          <div className="text-center py-16 sm:py-20">
+            <div className="relative inline-block mb-6 sm:mb-8">
+              <div className="w-16 h-16 sm:w-20 sm:h-20 bg-gradient-to-br from-gray-100 to-gray-200 dark:from-gray-800 dark:to-gray-700 rounded-full flex items-center justify-center">
+                <CheckSquare className="h-8 w-8 sm:h-10 sm:w-10 text-muted-foreground" />
+              </div>
+            </div>
+            <h3 className="text-xl sm:text-2xl font-semibold mb-2 sm:mb-4">No Tasks Found</h3>
+            <p className="text-sm sm:text-base text-muted-foreground mb-6 sm:mb-8 max-w-md mx-auto">
               {tasks.length === 0
                 ? "Start organizing your trip by adding your first task"
                 : "No tasks match your current filters"
@@ -430,14 +399,14 @@ export default function TripChecklistPage() {
             </p>
             <Button
               onClick={() => setShowAddTask(true)}
-              className="bg-gradient-to-r from-[#1e40af] to-[#3b82f6] text-white"
+              className="bg-gradient-to-r from-[#1e40af] to-[#3b82f6] text-white h-10 sm:h-12 px-6 sm:px-8 rounded-lg sm:rounded-xl"
             >
               <Plus className="h-4 w-4 mr-2" />
               Add First Task
             </Button>
           </div>
         ) : (
-          <div className="space-y-4">
+          <div className="space-y-3 sm:space-y-4">
             {filteredTasks.map((task) => (
               <TaskComponent
                 key={`${task.id}-${refreshKey}`}
@@ -451,11 +420,11 @@ export default function TripChecklistPage() {
 
         {/* Add Task Modal */}
         {showAddTask && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm">
-            <div className="bg-background border border-border/50 rounded-xl p-6 max-w-md w-full shadow-2xl">
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm">
+            <div className="bg-background border border-border/50 rounded-xl sm:rounded-2xl p-4 sm:p-6 max-w-xs sm:max-w-md w-full mx-4 shadow-2xl animate-in fade-in-0 zoom-in-95">
               <div className="flex items-center justify-between mb-4">
-                <h3 className="text-xl font-semibold">Add New Task</h3>
-                <Button variant="ghost" size="icon" onClick={() => setShowAddTask(false)}>
+                <h3 className="text-lg sm:text-xl font-semibold">Add New Task</h3>
+                <Button variant="ghost" size="icon" onClick={() => setShowAddTask(false)} className="w-8 h-8 sm:w-10 sm:h-10">
                   <X className="h-4 w-4" />
                 </Button>
               </div>
@@ -467,6 +436,7 @@ export default function TripChecklistPage() {
                     placeholder="Task title"
                     value={taskForm.title}
                     onChange={(e) => setTaskForm({ ...taskForm, title: e.target.value })}
+                    className="h-10 sm:h-12 rounded-lg sm:rounded-xl"
                   />
                 </div>
 
@@ -477,6 +447,7 @@ export default function TripChecklistPage() {
                     value={taskForm.description}
                     onChange={(e) => setTaskForm({ ...taskForm, description: e.target.value })}
                     rows={3}
+                    className="resize-none rounded-lg sm:rounded-xl"
                   />
                 </div>
 
@@ -486,17 +457,17 @@ export default function TripChecklistPage() {
                     type="date"
                     value={taskForm.due_date}
                     onChange={(e) => setTaskForm({ ...taskForm, due_date: e.target.value })}
-                    className="w-full"
+                    className="w-full h-10 sm:h-12 rounded-lg sm:rounded-xl"
                   />
                 </div>
 
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
                     <label className="block text-sm font-medium mb-2">Priority</label>
                     <select
                       value={taskForm.priority}
                       onChange={(e) => setTaskForm({ ...taskForm, priority: e.target.value as TaskPriority })}
-                      className="w-full p-2 border rounded-md bg-background"
+                      className="w-full p-2 border rounded-md bg-background h-10 sm:h-12 text-sm sm:text-base"
                     >
                       <option value={TaskPriority.LOW}>Low</option>
                       <option value={TaskPriority.MEDIUM}>Medium</option>
@@ -510,7 +481,7 @@ export default function TripChecklistPage() {
                     <select
                       value={taskForm.category}
                       onChange={(e) => setTaskForm({ ...taskForm, category: e.target.value as TaskCategory })}
-                      className="w-full p-2 border rounded-md bg-background"
+                      className="w-full p-2 border rounded-md bg-background h-10 sm:h-12 text-sm sm:text-base"
                     >
                       <option value={TaskCategory.DOCUMENTS}>Documents</option>
                       <option value={TaskCategory.ACTIVITIES}>Activities</option>
@@ -528,14 +499,14 @@ export default function TripChecklistPage() {
                     variant="outline"
                     onClick={() => setShowAddTask(false)}
                     disabled={saving}
-                    className="flex-1"
+                    className="flex-1 h-10 sm:h-12 rounded-lg sm:rounded-xl"
                   >
                     Cancel
                   </Button>
                   <Button
                     onClick={addTask}
                     disabled={saving || !taskForm.title.trim()}
-                    className="flex-1 bg-gradient-to-r from-[#1e40af] to-[#3b82f6] text-white"
+                    className="flex-1 bg-gradient-to-r from-[#1e40af] to-[#3b82f6] text-white h-10 sm:h-12 rounded-lg sm:rounded-xl"
                   >
                     {saving ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
                     Add Task
@@ -548,14 +519,14 @@ export default function TripChecklistPage() {
 
         {/* Success Modal */}
         {showSuccess && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm">
-            <div className="bg-background border border-border/50 rounded-xl p-6 max-w-md w-full shadow-2xl">
-              <div className="w-10 h-10 bg-green-100 dark:bg-green-900/30 rounded-full flex items-center justify-center mb-4 mx-auto">
-                <CheckCircle className="w-5 h-5 text-green-600" />
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm">
+            <div className="bg-background border border-border/50 rounded-xl sm:rounded-2xl p-4 sm:p-6 max-w-xs sm:max-w-md w-full mx-4 shadow-2xl animate-in fade-in-0 zoom-in-95">
+              <div className="w-8 h-8 sm:w-10 sm:h-10 bg-green-100 dark:bg-green-900/30 rounded-full flex items-center justify-center mb-4 mx-auto">
+                <CheckCircle className="w-4 h-4 sm:w-5 sm:h-5 text-green-600" />
               </div>
-              <h3 className="font-semibold text-lg mb-2 text-center">Success!</h3>
-              <p className="text-muted-foreground text-center mb-4">{successMessage}</p>
-              <Button onClick={() => setShowSuccess(false)} className="w-full">
+              <h3 className="font-semibold text-base sm:text-lg mb-2 text-center">Success!</h3>
+              <p className="text-sm sm:text-base text-muted-foreground text-center mb-4">{successMessage}</p>
+              <Button onClick={() => setShowSuccess(false)} className="w-full h-10 sm:h-12 rounded-lg sm:rounded-xl">
                 Close
               </Button>
             </div>
@@ -564,18 +535,18 @@ export default function TripChecklistPage() {
 
         {/* Error Modal */}
         {showError && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm">
-            <div className="bg-background border border-border/50 rounded-xl p-6 max-w-md w-full shadow-2xl">
-              <div className="w-10 h-10 bg-red-100 dark:bg-red-900/30 rounded-full flex items-center justify-center mb-4 mx-auto">
-                <AlertTriangle className="w-5 h-5 text-red-600" />
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm">
+            <div className="bg-background border border-border/50 rounded-xl sm:rounded-2xl p-4 sm:p-6 max-w-xs sm:max-w-md w-full mx-4 shadow-2xl animate-in fade-in-0 zoom-in-95">
+              <div className="w-8 h-8 sm:w-10 sm:h-10 bg-red-100 dark:bg-red-900/30 rounded-full flex items-center justify-center mb-4 mx-auto">
+                <AlertTriangle className="w-4 h-4 sm:w-5 sm:h-5 text-red-600" />
               </div>
-              <h3 className="font-semibold text-lg mb-2 text-center text-red-800 dark:text-red-300">
+              <h3 className="font-semibold text-base sm:text-lg mb-2 text-center text-red-800 dark:text-red-300">
                 {errorTitle}
               </h3>
-              <p className="text-muted-foreground text-center mb-4">{errorMessage}</p>
+              <p className="text-sm sm:text-base text-muted-foreground text-center mb-4">{errorMessage}</p>
               <Button
                 onClick={() => setShowError(false)}
-                className="w-full bg-red-600 hover:bg-red-700 text-white"
+                className="w-full bg-red-600 hover:bg-red-700 text-white h-10 sm:h-12 rounded-lg sm:rounded-xl"
               >
                 Close
               </Button>
