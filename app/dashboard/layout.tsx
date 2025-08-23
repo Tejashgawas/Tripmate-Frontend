@@ -1,5 +1,5 @@
 'use client';
-
+import { Analytics } from "@vercel/analytics/next"
 import ProtectedRoute from '@/components/auth/ProtectedRoute';
 
 export default function DashboardLayout({
@@ -9,6 +9,7 @@ export default function DashboardLayout({
 }) {
   return (
     <ProtectedRoute requiredRole="general">
+      <Analytics/>
       {children}
     </ProtectedRoute>
   );

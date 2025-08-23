@@ -7,6 +7,7 @@ import DashboardHeader from '@/components/dashboard-header'
 import ProviderSidebar from './Sidebar'
 import { Loader2, AlertTriangle, Shield } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { Analytics } from "@vercel/analytics/next"
 
 export default function ProviderLayout({ children }: { children: ReactNode }) {
   const router = useRouter()
@@ -71,12 +72,14 @@ export default function ProviderLayout({ children }: { children: ReactNode }) {
   }
 
   return (
+    
     <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50/30 to-indigo-50/20 dark:from-slate-900 dark:via-slate-900/95 dark:to-indigo-950/20">
       {/* Animated Background */}
       <div className="fixed inset-0 overflow-hidden pointer-events-none">
         <div className="absolute -top-40 -right-40 w-80 h-80 bg-gradient-to-br from-blue-400/10 to-purple-600/10 rounded-full blur-3xl animate-pulse"></div>
         <div className="absolute -bottom-40 -left-40 w-80 h-80 bg-gradient-to-tr from-purple-400/10 to-blue-600/10 rounded-full blur-3xl animate-pulse" style={{animationDelay: '2s'}}></div>
       </div>
+      <Analytics/>
 
       <div className="relative z-10 flex min-h-screen">
         {/* Desktop Sidebar */}

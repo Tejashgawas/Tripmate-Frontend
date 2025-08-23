@@ -360,6 +360,10 @@ export default function TripsPage() {
             </Button>
           </Link>
         </div>
+         {/* 👇 NEW: small explanatory note */}
+        <p className="text-sm font-semibold text-gray-600 italic -mt-1 mb-6">
+          To send an invite to your friend ,that user need to be first register with their email address on this platform.
+        </p>
 
         {/* Loading State */}
         {loading && (
