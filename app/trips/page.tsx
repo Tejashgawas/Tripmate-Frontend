@@ -3,23 +3,18 @@
 import { useState, useEffect } from "react"
 import Link from "next/link"
 import DashboardShell from "@/components/dashboard-shell"
-import { usePathname } from 'next/navigation'
-
-import { Button } from "@/components/ui/button"
-import { Card }   from "@/components/ui/card"
-import { Input }  from "@/components/ui/input"
-import { Badge }  from "@/components/ui/badge"
-
-
+import { useAuth } from "@/contexts/AuthContext"
+import { useApi } from "@/hooks/useApi"
 import {
   Search, MapPin, CalendarDays, Mail, Edit, Trash2,
   ChevronLeft, ChevronRight, Loader2, AlertTriangle,
   CheckCircle, X, Users, Crown, UserCheck, DollarSign,
   Sparkles, Calendar, Star
 } from "lucide-react"
-
-/* ───────────────── config ───────────────── */
-const BASE_URL = "https://tripmate-39hm.onrender.com/"
+import { Button } from "@/components/ui/button"
+import { Card } from "@/components/ui/card"
+import { Input } from "@/components/ui/input"
+import { Badge } from "@/components/ui/badge"
 
 /* ───────────────── interfaces ───────────────── */
 interface Creator {
@@ -70,17 +65,17 @@ const calculateDuration = (startDate: string, endDate: string) => {
 
 /* ───────────────── component ───────────────── */
 export default function TripsPage() {
-  /* state */
+  /* hooks */
+  const { user } = useAuth()
+  const { get, put, delete: deleteApi, post, loading: apiLoading, error: apiError } = useApi()
 
-  const [mounted, setMounted] = useState(false)
+  /* state */
   const [tripMemberships, setTripMemberships] = useState<TripMembership[]>([])
   const [loading, setLoading] = useState(true)
-  const [refreshing, setRefreshing] = useState(false)
-  const [currentUserId, setCurrentUserId] = useState<number | null>(null)
-  const [updating, setUpdating] = useState(false) // ✅ ADDED MISSING STATE
-
+  const [updating, setUpdating] = useState(false)
   const [search, setSearch] = useState("")
   const [searching, setSearching] = useState(false)
+  const [allTrips, setAllTrips] = useState<TripMembership[]>([]) // Store original trips for search
 
   const [editing, setEditing] = useState<number | null>(null)
   const [editForm, setEditForm] = useState({
@@ -102,92 +97,51 @@ export default function TripsPage() {
   const [invitedMail, setInvitedMail] = useState("")
   const [showInvSuccess, setShowInvSuccess] = useState(false)
 
-  /* token refresh */
-  const refreshToken = async () => {
-    try {
-      setRefreshing(true)
-      return (await fetch(`${BASE_URL}auth/refresh`, { method:"POST", credentials:"include" })).ok
-    } finally { setRefreshing(false) }
-  }
-
-  /* ───── Get current user from GET /me ───── */
-  const getCurrentUser = async () => {
-    try {
-      console.log("[TRIPS] Fetching current user from /me endpoint...")
-      const response = await fetch(`${BASE_URL}me/`, {
-        credentials: "include"
-      })
-      if (response.ok) {
-        const userData = await response.json()
-        console.log("[TRIPS] Current user data:", userData)
-        setCurrentUserId(userData.id)
-        return userData.id
-      } else {
-        console.error("[TRIPS] Failed to fetch current user:", response.status)
-      }
-    } catch (error) {
-      console.error("[TRIPS] Error fetching current user:", error)
+  /* ───── Fetch trips using useApi hook ───── */
+  const fetchTrips = async () => {
+    if (!user?.id) {
+      console.log("[TRIPS] No user ID available")
+      setLoading(false)
+      return
     }
-    return null
-  }
 
-  /* ───── Fetch trips using NEW ENDPOINT ───── */
-  const fetchTrips = async (retry = false) => {
     try {
       setLoading(true)
+      console.log("[TRIPS] Fetching trips for user:", user.id)
 
-      // Get current user ID from /me endpoint
-      const userId = currentUserId || await getCurrentUser()
-      if (!userId) {
-        console.error("[TRIPS] Cannot fetch trips - no user ID")
-        return
-      }
-
-      console.log("[TRIPS] Fetching trips for user:", userId)
-
-      // Use new endpoint with user ID
-      const res = await fetch(`${BASE_URL}trip-member/users/${userId}/trips`, {
-        credentials: "include"
+      const data = await get<{ trips: TripMembership[] }>(`/trip-member/users/${user.id}/trips`)
+      const memberships = data.trips || []
+      
+      console.log("[TRIPS] Fetched memberships:", {
+        total: memberships.length,
+        owned: memberships.filter(m => m.role === "owner").length,
+        member: memberships.filter(m => m.role === "member").length
       })
 
-      if (!res.ok && (res.status === 401 || res.status === 403) && !retry) {
-        if (await refreshToken()) return fetchTrips(true)
-      }
-
-      if (res.ok) {
-        const data = await res.json()
-        console.log("[TRIPS] Raw API response:", data)
-
-        const memberships: TripMembership[] = data.trips || []
-        
-        console.log("[TRIPS] Parsed memberships:", {
-          total: memberships.length,
-          owned: memberships.filter(m => m.role === "owner").length,
-          member: memberships.filter(m => m.role === "member").length
-        })
-
-        setTripMemberships(memberships)
-      } else {
-        console.error("[TRIPS] Failed to fetch trips:", res.status)
-      }
+      setTripMemberships(memberships)
+      setAllTrips(memberships) // Store original for search
     } catch (error) {
       console.error("[TRIPS] Error fetching trips:", error)
+      // Error handling is already managed by useApi hook
     } finally { 
       setLoading(false) 
     }
   }
 
   useEffect(() => { 
-    setMounted(true)
     fetchTrips()
-  }, [])
+  }, [user])
 
   /* search */
   const handleSearch = async () => {
-    if (!search.trim()) return fetchTrips()
+    if (!search.trim()) {
+      setTripMemberships(allTrips)
+      return
+    }
+    
+    setSearching(true)
     try {
-      setSearching(true)
-      const filtered = tripMemberships.filter(membership => {
+      const filtered = allTrips.filter(membership => {
         const searchLower = search.toLowerCase()
         return (
           (membership.trip.trip_code?.toLowerCase() || '').includes(searchLower) ||
@@ -201,44 +155,27 @@ export default function TripsPage() {
     }
   }
 
-  /* ───── Enhanced update trip with better success handling ───── */
-  const updateTrip = async (id: number, retry = false) => {
+  /* ───── Enhanced update trip with useApi ───── */
+  const updateTrip = async (id: number) => {
     try {
       setUpdating(true)
       console.log("[UPDATE] Updating trip:", { id, data: editForm })
       
-      const res = await fetch(`${BASE_URL}trips/update-trip/${id}`, {
-        method: "PUT", 
-        credentials: "include", 
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(editForm),
-      })
-
-      if (!res.ok && (res.status === 401 || res.status === 403) && !retry) {
-        if (await refreshToken()) return updateTrip(id, true)
-      }
-
-      if (res.ok) {
-        const updatedTrip = await res.json()
-        console.log("[UPDATE] Trip updated successfully:", updatedTrip)
-        
-        setEditing(null)
-        setUpdatedTitle(editForm.title)
-        setShowUpdate(true)
-        
-        // Refresh the trips data
-        await fetchTrips()
-        
-        // Auto-dismiss success message after 3 seconds
-        setTimeout(() => {
-          setShowUpdate(false)
-        }, 3000)
-        
-      } else {
-        const errorText = await res.text()
-        console.error("[UPDATE] Failed to update trip:", res.status, errorText)
-        alert(`Failed to update trip: ${res.status}`)
-      }
+      await put(`/trips/update-trip/${id}`, editForm)
+      
+      console.log("[UPDATE] Trip updated successfully")
+      setEditing(null)
+      setUpdatedTitle(editForm.title)
+      setShowUpdate(true)
+      
+      // Refresh the trips data
+      await fetchTrips()
+      
+      // Auto-dismiss success message after 3 seconds
+      setTimeout(() => {
+        setShowUpdate(false)
+      }, 3000)
+      
     } catch (error) {
       console.error("[UPDATE] Error updating trip:", error)
       alert("Error updating trip. Please try again.")
@@ -247,8 +184,8 @@ export default function TripsPage() {
     }
   }
 
-  /* ───── Enhanced delete function with better error handling ───── */
-  const deleteTrip = async (retry = false) => {
+  /* ───── Enhanced delete function with useApi ───── */
+  const deleteTrip = async () => {
     if (!toDelete) {
       console.error("[DELETE] No trip ID to delete")
       return
@@ -258,96 +195,56 @@ export default function TripsPage() {
       setUpdating(true)
       console.log("[DELETE] Deleting trip:", toDelete)
       
-      const res = await fetch(`${BASE_URL}trips/delete-trip/${toDelete}`, {
-        method: "DELETE", 
-        credentials: "include",
-      })
-
-      console.log("[DELETE] Response:", {
-        status: res.status,
-        statusText: res.statusText,
-        ok: res.ok,
-        tripId: toDelete
-      })
-
-      if (!res.ok && (res.status === 401 || res.status === 403) && !retry) {
-        console.log("[DELETE] Auth error, attempting refresh...")
-        if (await refreshToken()) return deleteTrip(true)
-      }
-
-      if (res.ok || res.status === 204) {
-        console.log("[DELETE] Trip deleted successfully:", toDelete)
-        
-        // Close modal and reset state
-        setShowConfirmDel(false)
-        setToDelete(null)
-        setShowDelSuccess(true)
-        
-        // Refresh the trips data immediately
-        await fetchTrips()
-        
-        // Auto-dismiss success message after 3 seconds
-        setTimeout(() => {
-          setShowDelSuccess(false)
-        }, 3000)
-        
-      } else {
-        const errorText = await res.text()
-        console.error("[DELETE] Failed to delete trip:", {
-          status: res.status,
-          statusText: res.statusText,
-          errorText,
-          tripId: toDelete
-        })
-        
-        // Show user-friendly error message
-        if (res.status === 403) {
-          alert("You don't have permission to delete this trip. Only the trip owner can delete it.")
-        } else if (res.status === 404) {
-          alert("Trip not found. It may have been already deleted.")
-        } else {
-          alert(`Failed to delete trip. Server returned: ${res.status} ${res.statusText}`)
-        }
-      }
+      await deleteApi(`/trips/delete-trip/${toDelete}`)
+      
+      console.log("[DELETE] Trip deleted successfully:", toDelete)
+      
+      // Close modal and reset state
+      setShowConfirmDel(false)
+      setToDelete(null)
+      setShowDelSuccess(true)
+      
+      // Refresh the trips data immediately
+      await fetchTrips()
+      
+      // Auto-dismiss success message after 3 seconds
+      setTimeout(() => {
+        setShowDelSuccess(false)
+      }, 3000)
+      
     } catch (error) {
-      console.error("[DELETE] Exception during delete:", {
-        error: error.message,
-        stack: error.stack,
-        tripId: toDelete
-      })
-      alert("Network error while deleting trip. Please check your connection and try again.")
+      console.error("[DELETE] Exception during delete:", error)
+      alert("Failed to delete trip. Please try again.")
     } finally {
       setUpdating(false)
     }
   }
 
   /* invite */
-  const sendInvite = async (retry = false) => {
+  const sendInvite = async () => {
     if (!inviteForm.invitee_email.trim()) return alert("Enter an email")
+    
     try {
       setInvLoading(true)
-      const res = await fetch(`${BASE_URL}trip-invite/`, {
-        method:"POST", credentials:"include",
-        headers:{ "Content-Type":"application/json" },
-        body: JSON.stringify(inviteForm),
-      })
-      if (!res.ok && (res.status===401||res.status===403) && !retry) {
-        if (await refreshToken()) return sendInvite(true)
-      }
-      if (res.ok) {
-        setInvitedMail(inviteForm.invitee_email)
-        setShowInvite(false)
-        setShowInvSuccess(true)
-        setInviteForm({ trip_id:0, invitee_email:"" })
-      } else {
-        alert("Send invite failed")
-      }
+      
+      await post(`/trip-invite/`, inviteForm)
+      
+      setInvitedMail(inviteForm.invitee_email)
+      setShowInvite(false)
+      setShowInvSuccess(true)
+      setInviteForm({ trip_id: 0, invitee_email: "" })
+      
+      setTimeout(() => {
+        setShowInvSuccess(false)
+      }, 3000)
+      
+    } catch (error) {
+      console.error("[INVITE] Send invite failed:", error)
+      alert("Send invite failed")
     } finally { 
       setInvLoading(false) 
     }
   }
-
-  if (!mounted) return null
 
   // Calculate stats
   const ownerTrips = tripMemberships.filter(m => m.role === "owner")
@@ -427,8 +324,8 @@ export default function TripsPage() {
             <Input
               placeholder="Search adventures..."
               value={search}
-              onChange={(e)=>setSearch(e.target.value)}
-              onKeyDown={(e)=> e.key==="Enter" && handleSearch()}
+              onChange={(e) => setSearch(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && handleSearch()}
               className="pl-10 sm:pl-12 h-10 sm:h-12 rounded-lg sm:rounded-xl border-2 bg-white/50 dark:bg-gray-900/50 backdrop-blur-sm focus:bg-white dark:focus:bg-gray-900 transition-all"
             />
           </div>
@@ -442,7 +339,7 @@ export default function TripsPage() {
             <Button 
               variant="outline" 
               className="w-full sm:w-auto h-10 sm:h-12 px-4 sm:px-6 rounded-lg sm:rounded-xl border-2"
-              onClick={()=>{setSearch(""); fetchTrips()}}
+              onClick={() => {setSearch(""); setTripMemberships(allTrips)}}
             >
               Clear
             </Button>
@@ -465,13 +362,13 @@ export default function TripsPage() {
         </div>
 
         {/* Loading State */}
-        {(loading || refreshing) && (
+        {loading && (
           <div className="flex flex-col items-center py-16 sm:py-20">
             <div className="relative">
               <div className="w-12 h-12 sm:w-16 sm:h-16 bg-gradient-to-r from-[#1e40af] to-[#06b6d4] rounded-full animate-pulse"></div>
               <Loader2 className="absolute inset-0 w-12 h-12 sm:w-16 sm:h-16 animate-spin text-white p-3 sm:p-4"/>
             </div>
-            <p className="mt-4 sm:mt-6 text-lg sm:text-xl text-muted-foreground">{refreshing?"Refreshing...":"Loading your adventures..."}</p>
+            <p className="mt-4 sm:mt-6 text-lg sm:text-xl text-muted-foreground">Loading your adventures...</p>
           </div>
         )}
 
@@ -533,13 +430,13 @@ export default function TripsPage() {
                         
                         <Input 
                           value={editForm.title} 
-                          onChange={(e)=>setEditForm({...editForm,title:e.target.value})} 
+                          onChange={(e) => setEditForm({...editForm,title:e.target.value})} 
                           placeholder="Adventure Title"
                           className="h-10 sm:h-12 rounded-lg sm:rounded-xl"
                         />
                         <Input 
                           value={editForm.location} 
-                          onChange={(e)=>setEditForm({...editForm,location:e.target.value})} 
+                          onChange={(e) => setEditForm({...editForm,location:e.target.value})} 
                           placeholder="Destination"
                           className="h-10 sm:h-12 rounded-lg sm:rounded-xl"
                         />
@@ -547,26 +444,26 @@ export default function TripsPage() {
                           <Input 
                             type="date" 
                             value={editForm.start_date} 
-                            onChange={(e)=>setEditForm({...editForm,start_date:e.target.value})}
+                            onChange={(e) => setEditForm({...editForm,start_date:e.target.value})}
                             className="h-10 sm:h-12 rounded-lg sm:rounded-xl"
                           />
                           <Input 
                             type="date" 
                             value={editForm.end_date} 
-                            onChange={(e)=>setEditForm({...editForm,end_date:e.target.value})}
+                            onChange={(e) => setEditForm({...editForm,end_date:e.target.value})}
                             className="h-10 sm:h-12 rounded-lg sm:rounded-xl"
                           />
                         </div>
                         <Input 
                           type="number" 
                           value={editForm.budget}
-                          onChange={(e)=>setEditForm({...editForm,budget:parseInt(e.target.value)||0})}
+                          onChange={(e) => setEditForm({...editForm,budget:parseInt(e.target.value)||0})}
                           placeholder="Budget (₹)"
                           className="h-10 sm:h-12 rounded-lg sm:rounded-xl"
                         />
                         <select 
                           value={editForm.trip_type} 
-                          onChange={(e)=>setEditForm({...editForm,trip_type:e.target.value})}
+                          onChange={(e) => setEditForm({...editForm,trip_type:e.target.value})}
                           className="w-full h-10 sm:h-12 px-3 sm:px-4 border rounded-lg sm:rounded-xl bg-background"
                         >
                           {["leisure","adventure","workation","pilgrimage","cultural","other"].map(o=>(
@@ -577,7 +474,7 @@ export default function TripsPage() {
                         <div className="flex gap-3 sm:gap-4 pt-4">
                           <Button 
                             className="flex-1 h-10 sm:h-12 rounded-lg sm:rounded-xl bg-gradient-to-r from-emerald-500 to-teal-500 text-sm sm:text-base" 
-                            onClick={()=>updateTrip(trip.id)}
+                            onClick={() => updateTrip(trip.id)}
                             disabled={updating}
                           >
                             {updating ? <Loader2 className="w-4 h-4 sm:w-5 sm:h-5 mr-2 animate-spin"/> : <CheckCircle className="w-4 h-4 sm:w-5 sm:h-5 mr-2"/>}
@@ -586,7 +483,7 @@ export default function TripsPage() {
                           <Button 
                             variant="outline" 
                             className="flex-1 h-10 sm:h-12 rounded-lg sm:rounded-xl text-sm sm:text-base" 
-                            onClick={()=>setEditing(null)}
+                            onClick={() => setEditing(null)}
                             disabled={updating}
                           >
                             <X className="w-4 h-4 sm:w-5 sm:h-5 mr-2"/>Cancel
@@ -595,14 +492,14 @@ export default function TripsPage() {
                       </div>
                     ) : (
                       <div className="relative z-20 p-6 sm:p-8">
-                        {/* ✅ FIXED Owner Controls - Vertical Stack */}
+                        {/* Owner Controls - Vertical Stack */}
                         {isOwner && (
                           <div className="absolute top-4 sm:top-6 right-4 sm:right-6 flex flex-col items-center gap-1 sm:gap-2 z-30 mt-12 sm:mt-14">
                             <Button 
                               variant="ghost" 
                               size="icon" 
                               className="w-9 h-9 sm:w-10 sm:h-10 rounded-full bg-white/90 dark:bg-gray-800/90 backdrop-blur-sm hover:bg-white dark:hover:bg-gray-800 shadow-md border border-gray-200/50 dark:border-gray-700/50"
-                              onClick={()=>{
+                              onClick={() => {
                                 setEditing(trip.id);
                                 setEditForm({
                                   title:trip.title,location:trip.location,start_date:trip.start_date,end_date:trip.end_date,
@@ -616,7 +513,7 @@ export default function TripsPage() {
                               variant="ghost" 
                               size="icon" 
                               className="w-9 h-9 sm:w-10 sm:h-10 rounded-full bg-white/90 dark:bg-gray-800/90 backdrop-blur-sm hover:bg-white dark:hover:bg-gray-800 shadow-md border border-gray-200/50 dark:border-gray-700/50"
-                              onClick={()=>{setToDelete(trip.id);setShowConfirmDel(true)}}
+                              onClick={() => {setToDelete(trip.id);setShowConfirmDel(true)}}
                             >
                               <Trash2 className="h-4 w-4 sm:h-5 sm:w-5 text-red-500"/>
                             </Button>
@@ -678,7 +575,7 @@ export default function TripsPage() {
                             {isOwner && (
                               <Button
                                 className="w-full h-10 sm:h-12 rounded-lg sm:rounded-xl bg-gradient-to-r from-[#1e40af] to-[#06b6d4] hover:from-[#1e40af]/90 hover:to-[#06b6d4]/90 shadow-lg font-semibold transition-all text-sm sm:text-base"
-                                onClick={()=>{setInviteForm({trip_id:trip.id,invitee_email:""});setShowInvite(true)}}
+                                onClick={() => {setInviteForm({trip_id:trip.id,invitee_email:""});setShowInvite(true)}}
                               >
                                 <Mail className="h-4 w-4 sm:h-5 sm:w-5 mr-2"/>Invite Travelers
                               </Button>
@@ -704,7 +601,7 @@ export default function TripsPage() {
         )}
       </div>
 
-      {/* ✅ SUCCESS NOTIFICATIONS */}
+      {/* SUCCESS NOTIFICATIONS */}
       {/* Enhanced Update Success Modal */}
       {showUpdate && (
         <div className="fixed top-4 right-4 z-50 animate-in slide-in-from-right duration-300">
@@ -765,15 +662,15 @@ export default function TripsPage() {
         </div>
       )}
 
-      {/* ✅ FIXED DELETE CONFIRMATION MODAL - WAS MISSING */}
+      {/* DELETE CONFIRMATION MODAL */}
       {showConfirmDel && (
         <Modal
-          onClose={()=>{setShowConfirmDel(false);setToDelete(null)}}
+          onClose={() => {setShowConfirmDel(false);setToDelete(null)}}
           actions={
             <>
               <Button 
                 variant="outline" 
-                onClick={()=>{setShowConfirmDel(false);setToDelete(null)}} 
+                onClick={() => {setShowConfirmDel(false);setToDelete(null)}} 
                 className="flex-1"
                 disabled={updating}
               >
@@ -800,10 +697,10 @@ export default function TripsPage() {
 
       {showInvite && (
         <Modal
-          onClose={()=>{setShowInvite(false);setInviteForm({trip_id:0,invitee_email:""})}}
+          onClose={() => {setShowInvite(false);setInviteForm({trip_id:0,invitee_email:""})}}
           actions={
             <>
-              <Button variant="outline" disabled={invLoading} onClick={()=>{setShowInvite(false);setInviteForm({trip_id:0,invitee_email:""})}} className="flex-1">
+              <Button variant="outline" disabled={invLoading} onClick={() => {setShowInvite(false);setInviteForm({trip_id:0,invitee_email:""})}} className="flex-1">
                 Cancel
               </Button>
               <Button disabled={invLoading} onClick={sendInvite} className="bg-gradient-to-r from-[#1e40af] to-[#06b6d4] flex-1">
@@ -821,13 +718,13 @@ export default function TripsPage() {
             type="email" 
             placeholder="Enter email address"
             value={inviteForm.invitee_email}
-            onChange={(e)=>setInviteForm({...inviteForm,invitee_email:e.target.value})}
+            onChange={(e) => setInviteForm({...inviteForm,invitee_email:e.target.value})}
           />
         </Modal>
       )}
 
       {showInvSuccess && (
-        <Modal onClose={()=>setShowInvSuccess(false)}>
+        <Modal onClose={() => setShowInvSuccess(false)}>
           <ModalIcon success/>
           <h3 className="font-bold text-xl sm:text-2xl">Invite Sent!</h3>
           <p className="text-muted-foreground mt-3">

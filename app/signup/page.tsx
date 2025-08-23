@@ -1,7 +1,6 @@
 "use client"
 
 import type React from "react"
-
 import { useState } from "react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -10,11 +9,16 @@ import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { ArrowLeft, Eye, EyeOff, Users, MapPin } from "lucide-react"
 import Link from "next/link"
+import { useRouter } from "next/navigation"
+import { useApi } from "@/hooks/useApi"
+import AuthGuard from "@/components/auth/AuthGuard"
 
 const BASE_URL = "https://tripmate-39hm.onrender.com/"
 
-export default function SignUpPage() {
- 
+function SignUpContent() {
+  const router = useRouter()
+  const { post, loading: apiLoading, error } = useApi()
+
   const [formData, setFormData] = useState({
     email: "",
     username: "",
@@ -36,43 +40,16 @@ export default function SignUpPage() {
     setIsLoading(true)
 
     try {
-      console.log("========================")
       console.log("Submitting form data:", formData)
 
-      const response = await fetch(`${BASE_URL}auth/register`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Accept: "application/json",
-        },
-        credentials: "include",
-        body: JSON.stringify(formData),
-      })
+      await post('/auth/register', formData)
 
-      console.log("Response status:", response.status)
-      console.log("Response headers:", response.headers)
-
-      if (response.ok) {
-        console.log("Registration successful")
-        alert("Registration successful! Redirecting to login...")
-        window.location.href = "/login"
-      } else {
-        const errorData = await response.json().catch(() => ({ message: "Unknown error occurred" }))
-        console.error("Registration failed:", errorData)
-        alert(`Registration failed: ${errorData.message || "Please try again."}`)
-      }
+      console.log("Registration successful")
+      alert("Registration successful! Redirecting to login...")
+      router.push("/login")
     } catch (error) {
-      console.error("Network error details:", error)
-
-      if (error instanceof TypeError && error.message.includes("Failed to fetch")) {
-        alert(
-          "Connection failed. This might be a CORS issue. Please ensure the backend allows requests from this domain.",
-        )
-      } else if (error instanceof TypeError) {
-        alert("Network error. Please check your internet connection and try again.")
-      } else {
-        alert(`Error: ${error instanceof Error ? error.message : "Unknown error occurred"}`)
-      }
+      console.error("Registration failed:", error)
+      alert(`Registration failed: ${error instanceof Error ? error.message : "Please try again."}`)
     } finally {
       setIsLoading(false)
     }
@@ -115,8 +92,6 @@ export default function SignUpPage() {
               TripMate
             </span>
           </Link>
-
-        
         </div>
       </header>
 
@@ -301,5 +276,13 @@ export default function SignUpPage() {
         </Card>
       </div>
     </div>
+  )
+}
+
+export default function SignUpPage() {
+  return (
+    <AuthGuard requireAuth={false} fallback={<div>Redirecting to dashboard...</div>}>
+      <SignUpContent />
+    </AuthGuard>
   )
 }
