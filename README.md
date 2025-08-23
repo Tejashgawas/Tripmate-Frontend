@@ -1,6 +1,6 @@
 # 🌐 TripMate Frontend
 
-TripMate is a **group trip planning platform** built to simplify the chaos of traveling with friends.  
+TripMate is a **smart group trip planning platform** built to simplify the chaos of traveling with friends.  
 This repository contains the **frontend** built with **Next.js** and **Tailwind CSS**, designed for a smooth, responsive, and mobile-friendly user experience.  
 
 
