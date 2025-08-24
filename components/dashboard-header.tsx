@@ -262,20 +262,7 @@ export default function DashboardHeader() {
                     </div>
                   </DropdownMenuItem>
 
-                  <DropdownMenuItem 
-                    onClick={handleSettingsClick}
-                    className="px-3 py-2.5 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800/50 cursor-pointer transition-colors group"
-                  >
-                    <div className="flex items-center space-x-3">
-                      <div className="p-1.5 bg-gray-100 dark:bg-gray-800/50 rounded-md group-hover:bg-gray-200 dark:group-hover:bg-gray-700/50 transition-colors">
-                        <Settings className="h-4 w-4 text-gray-600 dark:text-gray-400" />
-                      </div>
-                      <div>
-                        <p className="text-sm font-medium text-gray-900 dark:text-gray-100">Settings</p>
-                        <p className="text-xs text-gray-500 dark:text-gray-400">Preferences & privacy</p>
-                      </div>
-                    </div>
-                  </DropdownMenuItem>
+                  
                 </div>
 
                 <DropdownMenuSeparator className="my-2 bg-gray-200 dark:bg-gray-700" />
@@ -425,21 +412,6 @@ export default function DashboardHeader() {
                   </div>
                 </button>
 
-                {/* Settings Link */}
-                <button 
-                  onClick={handleSettingsClick}
-                  className="w-full p-3 text-left hover:bg-gray-50 dark:hover:bg-gray-800/50 rounded-lg transition-colors group"
-                >
-                  <div className="flex items-center space-x-3">
-                    <div className="p-1.5 bg-gray-100 dark:bg-gray-800/50 rounded-md group-hover:bg-gray-200 dark:group-hover:bg-gray-700/50 transition-colors">
-                      <Settings className="h-4 w-4 text-gray-600 dark:text-gray-400" />
-                    </div>
-                    <div>
-                      <p className="text-sm font-medium text-gray-900 dark:text-gray-100">Settings</p>
-                      <p className="text-xs text-gray-500 dark:text-gray-400">Preferences & privacy</p>
-                    </div>
-                  </div>
-                </button>
               </div>
 
               {/* Logout Section */}

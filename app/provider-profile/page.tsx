@@ -655,7 +655,7 @@ export default function ProviderProfilePage() {
                   We couldn't find your provider profile. You may need to set up your provider information first.
                 </p>
                 <Button
-                  onClick={() => router.push('/provider/profile-setup')}
+                  onClick={() => router.push('/provider/setup-profile')}
                   className="bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 text-white shadow-lg hover:shadow-xl transform hover:-translate-y-1 transition-all duration-300 h-10 sm:h-12 px-6 sm:px-8"
                 >
                   <User className="w-4 h-4 mr-2" />
