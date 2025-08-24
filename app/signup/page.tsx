@@ -1,24 +1,61 @@
+/* ----------------------------------------------------------------
+   app/(auth)/signup/page.tsx
+   ---------------------------------------------------------------- */
 "use client"
 
-import type React from "react"
-import { useState } from "react"
+import { useState, useEffect, Suspense } from "react"
+import { useRouter, useSearchParams } from "next/navigation"
+import Link from "next/link"
+
 import { Button } from "@/components/ui/button"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { ArrowLeft, Eye, EyeOff, Users, MapPin } from "lucide-react"
-import Link from "next/link"
-import { useRouter } from "next/navigation"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
+
+import {
+  ArrowLeft,
+  Eye,
+  EyeOff,
+  Users,
+  MapPin,
+  CheckCircle,
+  X,
+} from "lucide-react"
+
 import { useApi } from "@/hooks/useApi"
+import { useAuth } from "@/contexts/AuthContext"
 import AuthGuard from "@/components/auth/AuthGuard"
+import RolePickerModal from "@/components/RolePickerModal"
+
+/* ────────────────────────────────────────────────────────── */
 
 const BASE_URL = "https://tripmate-39hm.onrender.com/"
 
+/* ----------------------------------------------------------------
+   Page Content
+   ---------------------------------------------------------------- */
 function SignUpContent() {
   const router = useRouter()
-  const { post, loading: apiLoading, error } = useApi()
+  const searchParams = useSearchParams()
+  const { post } = useApi()
 
+  /* ---------- Auth context (for Google OAuth callback) ---------- */
+  const { user, loading: authLoading } = useAuth()
+
+  /* ---------- Local state ---------- */
   const [formData, setFormData] = useState({
     email: "",
     username: "",
@@ -28,46 +65,135 @@ function SignUpContent() {
   const [showPassword, setShowPassword] = useState(false)
   const [isLoading, setIsLoading] = useState(false)
 
-  const handleInputChange = (field: string, value: string) => {
-    setFormData((prev) => ({
-      ...prev,
-      [field]: value,
-    }))
+  /* Google OAuth helper state */
+  const [showSuccessToast, setShowSuccessToast] = useState(false)
+  const [showRoleModal, setShowRoleModal] = useState(false)
+
+  /* -------------------------------------------------------------- */
+  /* Redirect helper based on role                                  */
+  /* -------------------------------------------------------------- */
+  const redirectByRole = (role: string) => {
+    switch (role) {
+      case "general":
+        router.push("/dashboard")
+        break
+      case "provider":
+        router.push("/provider")
+        break
+      case "admin":
+        router.push("/admin")
+        break
+      default:
+        router.push("/")
+    }
   }
+
+  /* -------------------------------------------------------------- */
+  /* Handlers                                                       */
+  /* -------------------------------------------------------------- */
+  const handleInputChange = (field: string, value: string) =>
+    setFormData((prev) => ({ ...prev, [field]: value }))
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setIsLoading(true)
 
     try {
-      console.log("Submitting form data:", formData)
-
-      await post('/auth/register', formData)
-
-      console.log("Registration successful")
-      alert("Registration successful! Redirecting to login...")
+      await post("/auth/register", formData)
+      alert("Registration successful! Redirecting to login…")
       router.push("/login")
     } catch (error) {
       console.error("Registration failed:", error)
-      alert(`Registration failed: ${error instanceof Error ? error.message : "Please try again."}`)
+      alert(
+        `Registration failed: ${
+          error instanceof Error ? error.message : "Please try again."
+        }`,
+      )
     } finally {
       setIsLoading(false)
     }
   }
 
-  const handleGoogleSignup = async () => {
-    try {
-      console.log("Attempting Google signup...")
-      window.location.href = `${BASE_URL}auth/google/login`
-    } catch (error) {
-      console.error("Google signup error:", error)
-      alert("Google signup failed. Please try again.")
-    }
+  /* ---- Google signup (just redirect to backend OAuth endpoint) ---- */
+  const handleGoogleSignup = () => {
+    window.location.href = `${BASE_URL}auth/google/login`
   }
 
+  /* -------------------------------------------------------------- */
+  /* OAuth callback token handler (same flow as /login)             */
+  /* -------------------------------------------------------------- */
+  useEffect(() => {
+    const urlParams = new URLSearchParams(window.location.search)
+    const accessToken = urlParams.get("access_token")
+    const refreshToken = urlParams.get("refresh_token")
+
+    if (accessToken && refreshToken) {
+      localStorage.setItem("access_token", accessToken)
+      localStorage.setItem("refresh_token", refreshToken)
+
+      // Clean URL
+      const url = new URL(window.location.href)
+      url.searchParams.delete("access_token")
+      url.searchParams.delete("refresh_token")
+      window.history.replaceState({}, "", url.toString())
+
+      // Reload so AuthContext re-evaluates with new tokens
+      window.location.reload()
+    }
+  }, [])
+
+  /* -------------------------------------------------------------- */
+  /* New-user onboarding & role routing                             */
+  /* -------------------------------------------------------------- */
+  const new_user = searchParams.get("new_user") // may be "True"
+  useEffect(() => {
+    if (!authLoading && user) {
+      const isNewGoogleUser = new_user === "True" && user.auth_type === "google"
+
+      if (isNewGoogleUser) {
+        setShowRoleModal(true)
+        return
+      }
+      redirectByRole(user.role)
+    }
+  }, [authLoading, user, new_user])
+
+  const handleRoleModalClose = () => {
+    setShowRoleModal(false)
+    // remove ?new_user param
+    const url = new URL(window.location.href)
+    url.searchParams.delete("new_user")
+    window.history.replaceState({}, "", url.toString())
+  }
+
+  /* ----------------------------------------------------------------
+     Render
+     ---------------------------------------------------------------- */
   return (
     <div className="min-h-screen bg-gradient-to-br from-[#1e40af]/5 via-background to-[#06b6d4]/5 flex items-center justify-center p-4 relative overflow-hidden">
-      {/* Background particles */}
+      {/* Success toast (email registration) */}
+      {showSuccessToast && (
+        <div className="fixed top-4 left-1/2 -translate-x-1/2 z-[100] animate-in slide-in-from-top-2 duration-300">
+          <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-lg p-4 flex items-center space-x-3 min-w-[300px]">
+            <CheckCircle className="h-5 w-5 text-green-500 flex-shrink-0" />
+            <span className="text-sm font-medium text-gray-900 dark:text-gray-100 flex-1">
+              Account created
+            </span>
+            <button
+              onClick={() => setShowSuccessToast(false)}
+              className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 transition-colors"
+            >
+              <X className="h-4 w-4" />
+            </button>
+            <div className="absolute bottom-0 left-0 h-1 bg-green-500 rounded-b-lg animate-pulse w-full" />
+          </div>
+        </div>
+      )}
+
+      {/* Role picker for brand-new Google users */}
+      {showRoleModal && <RolePickerModal onClose={handleRoleModalClose} />}
+
+      {/* Decorative background particles */}
       <div className="absolute inset-0 overflow-hidden pointer-events-none">
         {[...Array(15)].map((_, i) => (
           <div
@@ -83,20 +209,24 @@ function SignUpContent() {
         ))}
       </div>
 
-      {/* Header */}
+      {/* Header (logo + back) */}
       <header className="absolute top-0 left-0 right-0 z-50 p-4">
         <div className="flex items-center justify-between max-w-6xl mx-auto">
           <Link href="/" className="flex items-center space-x-2 group">
-            <ArrowLeft className="h-5 w-5 text-[#1e40af] group-hover:translate-x-[-4px] transition-transform duration-300" />
-            <span className="font-sans text-2xl font-black tracking-tight bg-gradient-to-r from-[#1e40af] via-[#3b82f6] to-[#06b6d4] bg-clip-text text-transparent hover:scale-105 transition-transform duration-300">
+            <ArrowLeft className="h-5 w-5 text-[#1e40af] group-hover:-translate-x-1 transition-transform duration-300" />
+            <span className="font-sans text-2xl font-black tracking-tight bg-gradient-to-r from-[#1e40af] via-[#3b82f6] to-[#06b6d4] bg-clip-text text-transparent group-hover:scale-105 transition-transform duration-300">
               TripMate
             </span>
           </Link>
         </div>
       </header>
 
-      {/* Main content */}
-      <div className="w-full max-w-md relative z-10">
+      {/* Sign-up card (faded when role modal open) */}
+      <div
+        className={`w-full max-w-md relative z-10 transition-opacity duration-300 ${
+          showRoleModal ? "opacity-50 pointer-events-none" : "opacity-100"
+        }`}
+      >
         <Card className="backdrop-blur-sm bg-background/80 border-2 hover:border-[#1e40af]/20 transition-all duration-300 hover:shadow-2xl">
           <CardHeader className="text-center space-y-4">
             <div className="flex justify-center space-x-2 mb-4">
@@ -110,11 +240,14 @@ function SignUpContent() {
             <CardTitle className="text-3xl font-bold bg-gradient-to-r from-[#1e40af] to-[#06b6d4] bg-clip-text text-transparent">
               Join TripMate
             </CardTitle>
-            <CardDescription className="text-lg">Start planning amazing group adventures today</CardDescription>
+            <CardDescription className="text-lg">
+              Start planning amazing group adventures today
+            </CardDescription>
           </CardHeader>
 
           <CardContent>
             <form onSubmit={handleSubmit} className="space-y-6">
+              {/* Google button */}
               <Button
                 type="button"
                 onClick={handleGoogleSignup}
@@ -123,6 +256,7 @@ function SignUpContent() {
               >
                 <div className="absolute inset-0 bg-gradient-to-r from-[#1e40af]/5 to-[#06b6d4]/5 opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
                 <div className="flex items-center justify-center space-x-3 relative z-10">
+                  {/* Google SVG */}
                   <svg className="h-5 w-5" viewBox="0 0 24 24">
                     <path
                       fill="#4285F4"
@@ -145,20 +279,21 @@ function SignUpContent() {
                 </div>
               </Button>
 
+              {/* Divider */}
               <div className="relative">
                 <div className="absolute inset-0 flex items-center">
                   <span className="w-full border-t border-muted-foreground/20" />
                 </div>
                 <div className="relative flex justify-center text-xs uppercase">
-                  <span className="bg-background px-2 text-muted-foreground">Or continue with email</span>
+                  <span className="bg-background px-2 text-muted-foreground">
+                    Or continue with email
+                  </span>
                 </div>
               </div>
 
-              {/* Email field */}
+              {/* Email */}
               <div className="space-y-2">
-                <Label htmlFor="email" className="text-sm font-medium">
-                  Email Address
-                </Label>
+                <Label htmlFor="email">Email Address</Label>
                 <Input
                   id="email"
                   type="email"
@@ -170,11 +305,9 @@ function SignUpContent() {
                 />
               </div>
 
-              {/* Username field */}
+              {/* Username */}
               <div className="space-y-2">
-                <Label htmlFor="username" className="text-sm font-medium">
-                  Username
-                </Label>
+                <Label htmlFor="username">Username</Label>
                 <Input
                   id="username"
                   type="text"
@@ -186,11 +319,9 @@ function SignUpContent() {
                 />
               </div>
 
-              {/* Password field */}
+              {/* Password */}
               <div className="space-y-2">
-                <Label htmlFor="password" className="text-sm font-medium">
-                  Password
-                </Label>
+                <Label htmlFor="password">Password</Label>
                 <div className="relative">
                   <Input
                     id="password"
@@ -205,7 +336,7 @@ function SignUpContent() {
                     type="button"
                     variant="ghost"
                     size="icon"
-                    className="absolute right-2 top-1/2 transform -translate-y-1/2 h-8 w-8"
+                    className="absolute right-2 top-1/2 -translate-y-1/2 h-8 w-8"
                     onClick={() => setShowPassword(!showPassword)}
                   >
                     {showPassword ? (
@@ -219,10 +350,11 @@ function SignUpContent() {
 
               {/* Role dropdown */}
               <div className="space-y-2">
-                <Label htmlFor="role" className="text-sm font-medium">
-                  Account Type
-                </Label>
-                <Select value={formData.role} onValueChange={(value) => handleInputChange("role", value)}>
+                <Label htmlFor="role">Account Type</Label>
+                <Select
+                  value={formData.role}
+                  onValueChange={(v) => handleInputChange("role", v)}
+                >
                   <SelectTrigger className="h-12 border-2 focus:border-[#1e40af] transition-colors duration-300">
                     <SelectValue placeholder="Select your account type" />
                   </SelectTrigger>
@@ -232,7 +364,9 @@ function SignUpContent() {
                         <Users className="h-4 w-4 text-[#1e40af]" />
                         <div>
                           <div className="font-medium">General User</div>
-                          <div className="text-xs text-muted-foreground">Plan trips with friends</div>
+                          <div className="text-xs text-muted-foreground">
+                            Plan trips with friends
+                          </div>
                         </div>
                       </div>
                     </SelectItem>
@@ -241,7 +375,9 @@ function SignUpContent() {
                         <MapPin className="h-4 w-4 text-[#06b6d4]" />
                         <div>
                           <div className="font-medium">Service Provider</div>
-                          <div className="text-xs text-muted-foreground">Offer travel services</div>
+                          <div className="text-xs text-muted-foreground">
+                            Offer travel services
+                          </div>
                         </div>
                       </div>
                     </SelectItem>
@@ -249,13 +385,21 @@ function SignUpContent() {
                 </Select>
               </div>
 
-              {/* Submit button */}
+              {/* Submit */}
               <Button
                 type="submit"
-                disabled={isLoading || !formData.email || !formData.username || !formData.password || !formData.role}
+                disabled={
+                  isLoading ||
+                  !formData.email ||
+                  !formData.username ||
+                  !formData.password ||
+                  !formData.role
+                }
                 className="w-full h-12 bg-gradient-to-r from-[#1e40af] to-[#3b82f6] hover:from-[#1e40af]/90 hover:to-[#3b82f6]/90 text-white font-semibold relative overflow-hidden group transition-all duration-300 hover:scale-105 hover:shadow-lg"
               >
-                <span className="relative z-10">{isLoading ? "Creating Account..." : "Create Account"}</span>
+                <span className="relative z-10">
+                  {isLoading ? "Creating Account…" : "Create Account"}
+                </span>
                 <div className="absolute inset-0 bg-gradient-to-r from-[#06b6d4]/20 to-[#1e40af]/20 opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
               </Button>
 
@@ -279,10 +423,15 @@ function SignUpContent() {
   )
 }
 
+/* ----------------------------------------------------------------
+   Wrapper with AuthGuard (no auth required)
+   ---------------------------------------------------------------- */
 export default function SignUpPage() {
   return (
-    <AuthGuard requireAuth={false} fallback={<div>Redirecting to dashboard...</div>}>
-      <SignUpContent />
-    </AuthGuard>
+    <Suspense fallback={<div className="p-6 text-center">Loading signup…</div>}>
+      <AuthGuard requireAuth={false} fallback={<div>Redirecting…</div>}>
+        <SignUpContent />
+      </AuthGuard>
+    </Suspense>
   )
 }

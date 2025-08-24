@@ -10,7 +10,7 @@ export const useApi = () => {
   const [error, setError] = useState<string | null>(null);
 
   const request = async <T>(
-    method: 'get' | 'post' | 'put' | 'delete',
+    method: 'get' | 'post' | 'put' | 'delete'|'patch',
     url: string,
     data?: any
   ): Promise<T> => {
@@ -39,6 +39,8 @@ export const useApi = () => {
     post: <T>(url: string, data?: any) => request<T>('post', url, data),
     put: <T>(url: string, data?: any) => request<T>('put', url, data),
     delete: <T>(url: string) => request<T>('delete', url),
+    patch: <T>(url: string, data?: any) => request<T>('patch', url, data),
+
     clearError: () => setError(null)
   };
 };
