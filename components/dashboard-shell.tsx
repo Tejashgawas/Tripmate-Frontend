@@ -279,12 +279,6 @@ export default function DashboardShell({ children }: ShellProps) {
                     <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Profile</span>
                   </div>
                 </Link>
-                <Link href="/settings" onClick={() => setSidebarOpen(false)}>
-                  <div className="flex items-center gap-3 p-3 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors">
-                    <Settings className="h-5 w-5 text-gray-600 dark:text-gray-400" />
-                    <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Settings</span>
-                  </div>
-                </Link>
                 <button 
                   onClick={handleLogout}
                   className="w-full flex items-center gap-3 p-3 rounded-lg hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors group"
