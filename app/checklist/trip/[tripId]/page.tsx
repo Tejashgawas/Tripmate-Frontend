@@ -373,6 +373,10 @@ export default function TripChecklistPage() {
             </select>
           </div>
         </Card>
+         {/* 👇 NEW: small explanatory note */}
+        <p className="text-sm font-semibold text-red-600 italic -mt-1 mb-6">
+          only task creator can delete or update task,in an attempt to do that so by another member will be failed!
+        </p>
 
         {/* Tasks List */}
         {loading ? (
